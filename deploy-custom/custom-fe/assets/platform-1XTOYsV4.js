@@ -1,0 +1,1 @@
+function t(){if("undefined"==typeof navigator)return!1;const t="userAgentData"in navigator?navigator.userAgentData?.platform??"":navigator.platform??"";return/Mac|iPhone|iPad/i.test(t)||/Mac/i.test(navigator.userAgent)}export{t};

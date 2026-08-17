@@ -3,11 +3,9 @@ import { ClipboardCopy, Copy, Download, FileSymlink, FolderOutput, Trash2 } from
 import type { FileManagerAction, FileManagerBulkAction, FileNode } from './file-manager-types';
 
 /**
- * Built-in download action.
- *
- * The `getDownloadHref` callback receives the file node and must return a fully-formed
- * URL. For directories the browser is hinted to save the response as `${name}.zip` —
- * the backend is responsible for actually returning a zip stream.
+ * Built-in download action — browser-native `<a download href=…>`.
+ * Files go to the browser default download folder (user-configurable in Chrome
+ * settings). No File System Access API, no fetch-to-blob.
  */
 export const downloadAction = (
     getDownloadHref: (file: FileNode) => string,
@@ -202,10 +200,10 @@ export const bulkDownloadAction = (
 
         const href = getDownloadHref(files);
 
-        // Trigger the download via a transient anchor so the browser respects
-        // the `download` attribute and the backend's `Content-Disposition`.
-        // `window.open` would do, but it can be blocked as a popup and doesn't
-        // honour the filename hint the same way.
+        if (!href) {
+            return;
+        }
+
         const anchor = document.createElement('a');
 
         anchor.href = href;

@@ -1,0 +1,130 @@
+simple:
+  model: "glm-5.2"
+  temperature: 0.6
+  top_p: 0.9
+  n: 1
+  max_tokens: 8192
+  price:
+    input: 1.4
+    output: 4.4
+
+simple_json:
+  model: "glm-5.2"
+  temperature: 0.5
+  top_p: 0.9
+  n: 1
+  max_tokens: 8192
+  json: true
+  price:
+    input: 1.4
+    output: 4.4
+
+primary_agent:
+  model: "glm-5.2"
+  temperature: 0.7
+  top_p: 0.95
+  n: 1
+  max_tokens: 16384
+  price:
+    input: 1.4
+    output: 4.4
+
+assistant:
+  model: "glm-5.2"
+  temperature: 0.7
+  top_p: 0.95
+  n: 1
+  max_tokens: 16384
+  price:
+    input: 1.4
+    output: 4.4
+
+generator:
+  model: "glm-5.2"
+  temperature: 0.7
+  top_p: 0.95
+  n: 1
+  max_tokens: 16384
+  price:
+    input: 1.4
+    output: 4.4
+
+refiner:
+  model: "glm-5.2"
+  temperature: 0.5
+  top_p: 0.9
+  n: 1
+  max_tokens: 8192
+  price:
+    input: 1.4
+    output: 4.4
+
+adviser:
+  model: "glm-5.2"
+  temperature: 0.5
+  top_p: 0.9
+  n: 1
+  max_tokens: 8192
+  price:
+    input: 1.4
+    output: 4.4
+
+reflector:
+  model: "glm-5.2"
+  temperature: 0.5
+  top_p: 0.9
+  n: 1
+  max_tokens: 4096
+  price:
+    input: 1.4
+    output: 4.4
+
+searcher:
+  model: "glm-5.2"
+  temperature: 0.6
+  top_p: 0.9
+  n: 1
+  max_tokens: 8192
+  price:
+    input: 1.4
+    output: 4.4
+
+enricher:
+  model: "glm-5.2"
+  temperature: 0.6
+  top_p: 0.9
+  n: 1
+  max_tokens: 8192
+  price:
+    input: 1.4
+    output: 4.4
+
+coder:
+  model: "glm-5.2"
+  temperature: 0.2
+  top_p: 0.8
+  n: 1
+  max_tokens: 16384
+  price:
+    input: 1.4
+    output: 4.4
+
+installer:
+  model: "glm-5.2"
+  temperature: 0.2
+  top_p: 0.8
+  n: 1
+  max_tokens: 8192
+  price:
+    input: 1.4
+    output: 4.4
+
+pentester:
+  model: "glm-5.2"
+  temperature: 0.5
+  top_p: 0.9
+  n: 1
+  max_tokens: 16384
+  price:
+    input: 1.4
+    output: 4.4

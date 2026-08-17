@@ -165,24 +165,30 @@ export const generateFileName = (flow: FlowFragmentFragment): string => {
 };
 
 export const downloadTextFile = (content: string, fileName: string, mimeType = 'text/plain'): void => {
-    try {
-        const blob = new Blob([content], { type: mimeType });
-        const url = URL.createObjectURL(blob);
+    // Fire-and-forget through the shared local-download helper so Settings →
+    // Downloads preferences (fixed folder / ask each time) apply to reports too.
+    void import('@/lib/local-download')
+        .then(({ downloadTextLocally }) => downloadTextLocally(content, fileName, mimeType))
+        .catch((error) => {
+            Log.error('Failed to download file:', error);
 
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = fileName;
-        link.style.display = 'none';
+            try {
+                const blob = new Blob([content], { type: mimeType });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
 
-        document.body.append(link);
-        link.click();
-        link.remove();
-
-        URL.revokeObjectURL(url);
-    } catch (error) {
-        Log.error('Failed to download file:', error);
-        throw error;
-    }
+                link.href = url;
+                link.download = fileName;
+                link.style.display = 'none';
+                document.body.append(link);
+                link.click();
+                link.remove();
+                URL.revokeObjectURL(url);
+            } catch (fallbackError) {
+                Log.error('Fallback download failed:', fallbackError);
+                throw fallbackError;
+            }
+        });
 };
 
 export const copyToClipboard = async (text: string): Promise<boolean> => {

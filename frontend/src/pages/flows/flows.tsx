@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 
 import { FlowStatusIcon } from '@/components/icons/flow-status-icon';
 import { ProviderIcon } from '@/components/icons/provider-icon';
-import ConfirmationDialog from '@/components/shared/confirmation-dialog';
+import { FlowDeleteDialog, type FlowDeleteMode } from '@/features/flows/flow-delete-dialog';
 import { HeaderButton } from '@/components/shared/header-button';
 import { InlineEditInput } from '@/components/shared/inline-edit';
 import { Badge } from '@/components/ui/badge';
@@ -40,23 +40,23 @@ const statusConfig: Record<
     { label: string; variant: 'default' | 'destructive' | 'outline' | 'secondary' }
 > = {
     [StatusType.Created]: {
-        label: 'Created',
+        label: '已创建',
         variant: 'outline',
     },
     [StatusType.Failed]: {
-        label: 'Failed',
+        label: '失败',
         variant: 'destructive',
     },
     [StatusType.Finished]: {
-        label: 'Finished',
+        label: '已完成',
         variant: 'secondary',
     },
     [StatusType.Running]: {
-        label: 'Running',
+        label: '进行中',
         variant: 'default',
     },
     [StatusType.Waiting]: {
-        label: 'Waiting',
+        label: '等待用户输入',
         variant: 'outline',
     },
 };
@@ -92,7 +92,7 @@ function Flows() {
         setEditingFlowId(flow.id);
     }, []);
 
-    const handleFlowDelete = async () => {
+    const handleFlowDelete = async (mode: FlowDeleteMode) => {
         if (!deletingFlow) {
             return;
         }
@@ -100,10 +100,11 @@ function Flows() {
         setDeletingFlowIds((previousIds) => new Set(previousIds).add(deletingFlow.id));
 
         try {
-            const success = await deleteFlow(deletingFlow);
+            const success = await deleteFlow(deletingFlow, { purgeFiles: mode === 'purge' });
 
             if (success) {
                 setDeletingFlow(null);
+                setIsDeleteDialogOpen(false);
             }
         } finally {
             setDeletingFlowIds((previousIds) => {
@@ -647,14 +648,12 @@ function Flows() {
                     renderRowContextMenu={renderRowContextMenu}
                 />
 
-                <ConfirmationDialog
-                    cancelText="Cancel"
-                    confirmText="Delete"
-                    handleConfirm={handleFlowDelete}
-                    handleOpenChange={setIsDeleteDialogOpen}
+                <FlowDeleteDialog
+                    flow={deletingFlow}
+                    isDeleting={deletingFlow ? deletingFlowIds.has(deletingFlow.id) : false}
                     isOpen={isDeleteDialogOpen}
-                    itemName={deletingFlow?.title}
-                    itemType="flow"
+                    onConfirm={handleFlowDelete}
+                    onOpenChange={setIsDeleteDialogOpen}
                 />
             </div>
         </>

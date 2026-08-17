@@ -3,9 +3,13 @@ package services
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 
 	"pentagi/pkg/controller"
 	"pentagi/pkg/database"
@@ -16,6 +20,7 @@ import (
 	"pentagi/pkg/server/models"
 	"pentagi/pkg/server/rdb"
 	"pentagi/pkg/server/response"
+	"pentagi/pkg/tools"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jinzhu/gorm"
@@ -45,10 +50,11 @@ var flowsSQLMappers = map[string]any{
 }
 
 type FlowService struct {
-	db *gorm.DB
-	pc providers.ProviderController
-	fc controller.FlowController
-	ss subscriptions.SubscriptionsController
+	db      *gorm.DB
+	pc      providers.ProviderController
+	fc      controller.FlowController
+	ss      subscriptions.SubscriptionsController
+	dataDir string
 }
 
 func NewFlowService(
@@ -56,12 +62,14 @@ func NewFlowService(
 	pc providers.ProviderController,
 	fc controller.FlowController,
 	ss subscriptions.SubscriptionsController,
+	dataDir string,
 ) *FlowService {
 	return &FlowService{
-		db: db,
-		pc: pc,
-		fc: fc,
-		ss: ss,
+		db:      db,
+		pc:      pc,
+		fc:      fc,
+		ss:      ss,
+		dataDir: dataDir,
 	}
 }
 
@@ -532,6 +540,7 @@ func (s *FlowService) PatchFlow(c *gin.Context) {
 // @Tags Flows
 // @Security BearerAuth
 // @Param flowID path int true "flow id" minimum(0)
+// @Param purgeFiles query bool false "when true, also delete flow data directory and terminal volume"
 // @Success 200 {object} response.successResp{data=models.Flow} "flow deleted successful"
 // @Failure 403 {object} response.errorResp "deleting flow not permitted"
 // @Failure 404 {object} response.errorResp "flow not found"
@@ -550,6 +559,13 @@ func (s *FlowService) DeleteFlow(c *gin.Context) {
 		response.Error(c, response.ErrFlowsInvalidRequest, err)
 		return
 	}
+
+	// purgeFiles=true → delete disk data (flow-*-data + terminal volume)
+	// default false → only remove DB/UI record (backend files kept)
+	purgeFiles := strings.EqualFold(c.Query("purgeFiles"), "true") ||
+		c.Query("purgeFiles") == "1" ||
+		strings.EqualFold(c.Query("purge"), "true") ||
+		c.Query("purge") == "1"
 
 	uid := c.GetUint64("uid")
 	privs := c.GetStringSlice("prm")
@@ -630,6 +646,28 @@ func (s *FlowService) DeleteFlow(c *gin.Context) {
 		publisher := s.ss.NewFlowPublisher(int64(flow.UserID), int64(flow.ID))
 		publisher.FlowUpdated(c, flowDB, containersDB)
 		publisher.FlowDeleted(c, flowDB, containersDB)
+	}
+
+	if purgeFiles && s.dataDir != "" {
+		// Remove host-side flow data tree (uploads/work/resources/container).
+		dataRoot := filepath.Join(s.dataDir, fmt.Sprintf("flow-%d-data", flow.ID))
+		if err := os.RemoveAll(dataRoot); err != nil {
+			logger.FromContext(c).WithError(err).Warnf("failed to remove flow data dir %s", dataRoot)
+		}
+		// Legacy layout used by older builds: flow-{id} without -data suffix.
+		legacyRoot := filepath.Join(s.dataDir, fmt.Sprintf("flow-%d", flow.ID))
+		if err := os.RemoveAll(legacyRoot); err != nil {
+			logger.FromContext(c).WithError(err).Warnf("failed to remove legacy flow dir %s", legacyRoot)
+		}
+		// Best-effort note: terminal named volume pentagi-terminal-{id}-data
+		// is removed by docker when container is force-removed with volumes;
+		// FinishFlow already stopped the primary terminal.
+		_ = tools.PrimaryTerminalNamePrefix // keep import used for documentation
+		logger.FromContext(c).WithFields(map[string]any{
+			"flow_id":   flow.ID,
+			"data_root": dataRoot,
+			"terminal":  tools.PrimaryTerminalName(int64(flow.ID)),
+		}).Info("purged flow files from disk")
 	}
 
 	response.Success(c, http.StatusOK, flow)

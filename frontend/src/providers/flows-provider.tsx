@@ -19,10 +19,15 @@ import { Log } from '@/lib/log';
 
 export type Flow = FlowFragmentFragment;
 
+export type DeleteFlowOptions = {
+    /** When true, also delete flow-{id}-data on disk and related artifacts */
+    purgeFiles?: boolean;
+};
+
 interface FlowsContextValue {
     createFlow: (values: FlowFormValues) => Promise<null | string>;
     createFlowWithAssistant: (values: FlowFormValues) => Promise<null | string>;
-    deleteFlow: (flow: Flow) => Promise<boolean>;
+    deleteFlow: (flow: Flow, options?: DeleteFlowOptions) => Promise<boolean>;
     finishFlow: (flow: Flow) => Promise<boolean>;
     flows: Array<Flow>;
     flowsData: FlowsQuery | undefined;
@@ -147,32 +152,47 @@ export function FlowsProvider({ children }: FlowsProviderProps) {
     );
 
     const deleteFlow = useCallback(
-        async (flow: Flow) => {
+        async (flow: Flow, options?: DeleteFlowOptions) => {
             const { id: flowId, title } = flow;
+            const purgeFiles = options?.purgeFiles === true;
 
             if (!flowId) {
                 return false;
             }
 
-            const flowDescription = `${title || 'Unknown'} (ID: ${flowId})`;
+            const flowDescription = `${title || '未命名'} (ID: ${flowId})`;
+            const modeLabel = purgeFiles ? '彻底删除（含文件）' : '仅删除记录';
 
-            const loadingToastId = toast.loading('Deleting flow...', {
+            const loadingToastId = toast.loading(`正在删除任务流…（${modeLabel}）`, {
                 description: flowDescription,
             });
 
             try {
-                await deleteFlowMutation({
-                    variables: { flowId },
-                });
+                if (purgeFiles) {
+                    // REST DeleteFlow supports purgeFiles=1 (removes DB + flow-*-data).
+                    const { api } = await import('@/lib/axios');
+                    await api.delete(`/flows/${flowId}`, { params: { purgeFiles: true } });
+                    // Apollo cache: remove via mutation side-channel if still present
+                    try {
+                        await deleteFlowMutation({ variables: { flowId } });
+                    } catch {
+                        /* record already deleted by REST */
+                    }
+                } else {
+                    // GraphQL delete: UI/DB only; keeps disk data
+                    await deleteFlowMutation({
+                        variables: { flowId },
+                    });
+                }
 
-                toast.success('Flow deleted successfully', {
-                    description: flowDescription,
+                toast.success('任务流已删除', {
+                    description: `${flowDescription} · ${modeLabel}`,
                     id: loadingToastId,
                 });
 
                 return true;
             } catch (error) {
-                const errorMessage = error instanceof Error ? error.message : 'An error occurred while deleting flow';
+                const errorMessage = error instanceof Error ? error.message : '删除任务流失败';
                 toast.error(errorMessage, {
                     description: flowDescription,
                     id: loadingToastId,

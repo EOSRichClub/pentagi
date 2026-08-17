@@ -179,25 +179,56 @@ func (dc *dockerClient) RunContainer(
 		return database.Container{}, fmt.Errorf("no config found for container %s", containerName)
 	}
 
-	workDir := filepath.Join(dc.dataDir, fmt.Sprintf(containerLocalCwdTemplate, flowID))
-	if err := os.MkdirAll(workDir, 0755); err != nil {
-		return database.Container{}, fmt.Errorf("failed to create tmp directory: %w", err)
+	// Per-flow layout: {dataDir}/flow-{id}-data/{work,uploads,resources,container}
+	// Agent /work is bind-mounted to flow-{id}-data/work so all deliverables stay in one folder.
+	flowDataRel := fmt.Sprintf("flow-%d-data", flowID)
+	workDir := filepath.Join(dc.dataDir, flowDataRel, "work")
+	uploadsDir := filepath.Join(dc.dataDir, flowDataRel, "uploads")
+	resourcesDir := filepath.Join(dc.dataDir, flowDataRel, "resources")
+	containerCacheDir := filepath.Join(dc.dataDir, flowDataRel, "container")
+	for _, d := range []string{workDir, uploadsDir, resourcesDir, containerCacheDir,
+		filepath.Join(workDir, "uploads"), filepath.Join(workDir, "resources")} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			return database.Container{}, fmt.Errorf("failed to create flow data directory %s: %w", d, err)
+		}
 	}
 
-	hostDir := dc.hostDir
-	if hostDir != "" {
-		hostDir = filepath.Join(hostDir, fmt.Sprintf(containerLocalCwdTemplate, flowID))
+	// Prefer host bind path so Docker daemon on host can mount the same tree.
+	hostBase := dc.hostDir
+	hostWork := ""
+	hostUploads := ""
+	hostResources := ""
+	hostData := ""
+	hostReports := ""
+	hostSource := ""
+	if hostBase != "" {
+		hostWork = filepath.Join(hostBase, flowDataRel, "work")
+		hostUploads = filepath.Join(hostBase, flowDataRel, "uploads")
+		hostResources = filepath.Join(hostBase, flowDataRel, "resources")
+		hostData = filepath.Join(hostBase, flowDataRel, "data")
+		hostReports = filepath.Join(hostBase, flowDataRel, "reports")
+		hostSource = filepath.Join(hostBase, flowDataRel, "source")
+		for _, d := range []string{hostWork, hostUploads, hostResources, hostData, hostReports, hostSource,
+			filepath.Join(hostWork, "uploads"), filepath.Join(hostWork, "resources"),
+			filepath.Join(hostWork, "data"), filepath.Join(hostWork, "reports"), filepath.Join(hostWork, "source")} {
+			_ = os.MkdirAll(d, 0755)
+		}
 	}
 
 	logger := dc.logger.WithContext(ctx).WithFields(logrus.Fields{
-		"image":    config.Image,
-		"name":     containerName,
-		"type":     containerType,
-		"flow_id":  flowID,
-		"work_dir": workDir,
-		"host_dir": hostDir,
+		"image":     config.Image,
+		"name":      containerName,
+		"type":      containerType,
+		"flow_id":   flowID,
+		"work_dir":  workDir,
+		"host_work": hostWork,
 	})
 	logger.Info("running container")
+
+	localDirForDB := hostWork
+	if localDirForDB == "" {
+		localDirForDB = workDir
+	}
 
 	dbContainer, err := dc.db.CreateContainer(ctx, database.CreateContainerParams{
 		Type:     containerType,
@@ -206,7 +237,7 @@ func (dc *dockerClient) RunContainer(
 		Status:   database.ContainerStatusStarting,
 		FlowID:   flowID,
 		LocalID:  database.StringToNullString(fmt.Sprintf("tmp-id-%d", flowID)),
-		LocalDir: database.StringToNullString(hostDir),
+		LocalDir: database.StringToNullString(localDirForDB),
 	})
 	if err != nil {
 		return database.Container{}, fmt.Errorf("failed to create container in database: %w", err)
@@ -267,7 +298,12 @@ func (dc *dockerClient) RunContainer(
 		MaximumRetryCount: 5,
 	}
 
-	if hostDir == "" {
+	// Bind strategy (preference A):
+	//   host flow-{id}-data/work      -> /work
+	//   host flow-{id}-data/uploads   -> /work/uploads
+	//   host flow-{id}-data/resources -> /work/resources
+	// Fallback (no resolvable host path): named volume for /work only.
+	if hostWork == "" {
 		volumeName, err := dc.client.VolumeCreate(ctx, volume.CreateOptions{
 			Name:   fmt.Sprintf("%s-data", containerName),
 			Driver: "local",
@@ -275,9 +311,19 @@ func (dc *dockerClient) RunContainer(
 		if err != nil {
 			return database.Container{}, fmt.Errorf("failed to create volume: %w", err)
 		}
-		hostDir = volumeName.Name
+		hostConfig.Binds = append(hostConfig.Binds, fmt.Sprintf("%s:%s", volumeName.Name, WorkFolderPathInContainer))
+		logger.WithField("volume", volumeName.Name).Warn("using named volume for /work (host data path unresolved)")
+	} else {
+		// /work = agent workspace; pin folders also mounted under /work/* for agent access
+		hostConfig.Binds = append(hostConfig.Binds,
+			fmt.Sprintf("%s:%s", hostWork, WorkFolderPathInContainer),
+			fmt.Sprintf("%s:%s", hostUploads, filepath.Join(WorkFolderPathInContainer, "uploads")),
+			fmt.Sprintf("%s:%s", hostResources, filepath.Join(WorkFolderPathInContainer, "resources")),
+			fmt.Sprintf("%s:%s", hostData, filepath.Join(WorkFolderPathInContainer, "data")),
+			fmt.Sprintf("%s:%s", hostReports, filepath.Join(WorkFolderPathInContainer, "reports")),
+			fmt.Sprintf("%s:%s", hostSource, filepath.Join(WorkFolderPathInContainer, "source")),
+		)
 	}
-	hostConfig.Binds = append(hostConfig.Binds, fmt.Sprintf("%s:%s", hostDir, WorkFolderPathInContainer))
 
 	if dc.inside {
 		hostConfig.Binds = append(hostConfig.Binds, fmt.Sprintf("%s:%s", dc.socket, defaultDockerSocketPath))
@@ -821,13 +867,13 @@ func getHostDataDir(ctx context.Context, cli *client.Client, dataDir, workDir st
 	// get more accurate path to the data directory
 	mountPoint := mounts[0]
 	switch mountPoint.Type {
-	case mount.TypeBind:
+	case mount.TypeBind, mount.TypeVolume:
+		// Volume Source is the host path under /var/lib/docker/volumes/.../_data
+		// on Linux Docker hosts (typical ECS / production). Bind Source is the
+		// host bind path. Both let worker containers mount flow data from host.
 		deltaPath := strings.TrimPrefix(dataDir, mountPoint.Destination)
 		return filepath.Join(mountPoint.Source, deltaPath)
 	default:
-		// skip volume mount type because it leads to unexpected behavior
-		// e.g. macOS or Windows usually mounts directory from the docker VM
-		// and it's not the same as the host machine's directory
 		return ""
 	}
 }

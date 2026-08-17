@@ -9,12 +9,13 @@ import {
     FLOW_FILES_MAX_FILE_SIZE_MB,
     FLOW_FILES_MAX_UPLOAD_FILES_PER_REQUEST,
     FLOW_FILES_MAX_UPLOAD_TOTAL_SIZE_MB,
-    UPLOADS_TARGET_DIRECTORY,
 } from './flow-files-constants';
 import { type FlowFilesResponse } from './flow-files-utils';
 
 interface UseFlowFilesUploadParams {
     flowId: null | string;
+    /** Relative directory under flow data, e.g. uploads or uploads/客户A */
+    targetDirectory?: string;
 }
 
 interface UseFlowFilesUploadResult {
@@ -28,17 +29,17 @@ interface UseFlowFilesUploadResult {
     uploadFiles: (selectedFiles: File[]) => Promise<void>;
 }
 
-const buildUploadSuccessMessage = (uploadedCount: number, firstFileName?: string) => {
+const buildUploadSuccessMessage = (uploadedCount: number, directory: string, firstFileName?: string) => {
     if (uploadedCount === 1) {
         return {
-            description: `Available at ${UPLOADS_TARGET_DIRECTORY}/${firstFileName ?? ''}`,
-            title: 'File uploaded',
+            description: `已保存到 ${directory}/${firstFileName ?? ''}`,
+            title: '上传成功',
         };
     }
 
     return {
-        description: `${uploadedCount} files are now available under ${UPLOADS_TARGET_DIRECTORY}`,
-        title: `${uploadedCount} files uploaded`,
+        description: `${uploadedCount} 个文件已保存到 ${directory}`,
+        title: '上传成功',
     };
 };
 
@@ -55,7 +56,10 @@ const buildUploadSuccessMessage = (uploadedCount: number, firstFileName?: string
  * is wired into the Apollo cache (see `lib/apollo.ts`) and appends the newly
  * uploaded entries automatically.
  */
-export function useFlowFilesUpload({ flowId }: UseFlowFilesUploadParams): UseFlowFilesUploadResult {
+export function useFlowFilesUpload({
+    flowId,
+    targetDirectory = 'uploads',
+}: UseFlowFilesUploadParams): UseFlowFilesUploadResult {
     const inputRef = useRef<HTMLInputElement | null>(null);
     const [isUploading, setIsUploading] = useState(false);
     const [fileInputKey, setFileInputKey] = useState(0);
@@ -77,7 +81,7 @@ export function useFlowFilesUpload({ flowId }: UseFlowFilesUploadParams): UseFlo
             });
 
             if (validationError) {
-                toast.error('Upload failed', { description: validationError });
+                toast.error('上传失败', { description: validationError });
 
                 return;
             }
@@ -85,6 +89,7 @@ export function useFlowFilesUpload({ flowId }: UseFlowFilesUploadParams): UseFlo
             const formData = new FormData();
 
             selectedFiles.forEach((file) => formData.append('files', file));
+            formData.append('directory', targetDirectory);
 
             setIsUploading(true);
 
@@ -97,18 +102,22 @@ export function useFlowFilesUpload({ flowId }: UseFlowFilesUploadParams): UseFlo
                 });
                 const data = unwrapApiResponse(response);
                 const uploadedCount = data.files?.length ?? selectedFiles.length;
-                const successMessage = buildUploadSuccessMessage(uploadedCount, data.files?.[0]?.name);
+                const successMessage = buildUploadSuccessMessage(
+                    uploadedCount,
+                    targetDirectory,
+                    data.files?.[0]?.name,
+                );
 
                 toast.success(successMessage.title, { description: successMessage.description });
             } catch (error) {
-                const description = getApiErrorMessage(error, 'Failed to upload files');
+                const description = getApiErrorMessage(error, '上传失败');
 
-                toast.error('Upload failed', { description });
+                toast.error('上传失败', { description });
             } finally {
                 setIsUploading(false);
             }
         },
-        [flowId],
+        [flowId, targetDirectory],
     );
 
     const handleFileSelection = useCallback(

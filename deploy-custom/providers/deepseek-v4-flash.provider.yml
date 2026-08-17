@@ -1,0 +1,195 @@
+# DeepSeek V4 Flash -- all agent roles use deepseek-v4-flash
+# Max thinking profile: thinking enabled for every role, reasoning effort set to high.
+
+simple:
+  model: deepseek-v4-flash
+  temperature: 0.3
+  top_p: 0.9
+  n: 1
+  max_tokens: 8192
+  reasoning:
+    effort: high
+  extra_body:
+    thinking:
+      type: enabled
+  price:
+    input: 0.14
+    output: 0.28
+    cache_read: 0.0028
+
+simple_json:
+  model: deepseek-v4-flash
+  temperature: 0.3
+  top_p: 0.9
+  n: 1
+  max_tokens: 4096
+  json: true
+  reasoning:
+    effort: high
+  extra_body:
+    thinking:
+      type: enabled
+  price:
+    input: 0.14
+    output: 0.28
+    cache_read: 0.0028
+
+primary_agent:
+  model: deepseek-v4-flash
+  n: 1
+  max_tokens: 16384
+  reasoning:
+    effort: high
+  extra_body:
+    thinking:
+      type: enabled
+  price:
+    input: 0.14
+    output: 0.28
+    cache_read: 0.0028
+
+assistant:
+  model: deepseek-v4-flash
+  n: 1
+  max_tokens: 16384
+  reasoning:
+    effort: high
+  extra_body:
+    thinking:
+      type: enabled
+  price:
+    input: 0.14
+    output: 0.28
+    cache_read: 0.0028
+
+generator:
+  model: deepseek-v4-flash
+  n: 1
+  max_tokens: 16384
+  reasoning:
+    effort: high
+  extra_body:
+    thinking:
+      type: enabled
+  price:
+    input: 0.14
+    output: 0.28
+    cache_read: 0.0028
+
+refiner:
+  model: deepseek-v4-flash
+  n: 1
+  max_tokens: 12288
+  reasoning:
+    effort: high
+  extra_body:
+    thinking:
+      type: enabled
+  price:
+    input: 0.14
+    output: 0.28
+    cache_read: 0.0028
+
+adviser:
+  model: deepseek-v4-flash
+  n: 1
+  max_tokens: 12288
+  reasoning:
+    effort: high
+  extra_body:
+    thinking:
+      type: enabled
+  price:
+    input: 0.14
+    output: 0.28
+    cache_read: 0.0028
+
+reflector:
+  model: deepseek-v4-flash
+  temperature: 0.5
+  top_p: 0.9
+  n: 1
+  max_tokens: 8192
+  reasoning:
+    effort: high
+  extra_body:
+    thinking:
+      type: enabled
+  price:
+    input: 0.14
+    output: 0.28
+    cache_read: 0.0028
+
+searcher:
+  model: deepseek-v4-flash
+  temperature: 0.5
+  top_p: 0.9
+  n: 1
+  max_tokens: 8192
+  reasoning:
+    effort: high
+  extra_body:
+    thinking:
+      type: enabled
+  price:
+    input: 0.14
+    output: 0.28
+    cache_read: 0.0028
+
+enricher:
+  model: deepseek-v4-flash
+  temperature: 0.5
+  top_p: 0.9
+  n: 1
+  max_tokens: 8192
+  reasoning:
+    effort: high
+  extra_body:
+    thinking:
+      type: enabled
+  price:
+    input: 0.14
+    output: 0.28
+    cache_read: 0.0028
+
+coder:
+  model: deepseek-v4-flash
+  n: 1
+  max_tokens: 16384
+  reasoning:
+    effort: high
+  extra_body:
+    thinking:
+      type: enabled
+  price:
+    input: 0.14
+    output: 0.28
+    cache_read: 0.0028
+
+installer:
+  model: deepseek-v4-flash
+  n: 1
+  max_tokens: 12288
+  reasoning:
+    effort: high
+  extra_body:
+    thinking:
+      type: enabled
+  price:
+    input: 0.14
+    output: 0.28
+    cache_read: 0.0028
+
+pentester:
+  model: deepseek-v4-flash
+  n: 1
+  max_tokens: 16384
+  reasoning:
+    effort: high
+  extra_body:
+    thinking:
+      type: enabled
+  price:
+    input: 0.14
+    output: 0.28
+    cache_read: 0.0028

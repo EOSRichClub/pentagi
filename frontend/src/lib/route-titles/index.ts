@@ -36,6 +36,7 @@ export type TitleResolver = ((params: RouteParams) => string) | ComponentType<{ 
 export const routeTitles = {
     apiTokens: { title: 'API Tokens' },
     dashboard: { title: 'Dashboard' },
+    downloads: { title: 'Downloads' },
     flow: {
         title: apolloTitle({
             select: (data, { flowId }) =>

@@ -19,9 +19,11 @@ import { startTransition, useCallback, useEffect, useOptimistic, useState } from
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
+import { FlowStatusBadge } from '@/components/icons/flow-status-badge';
 import { FlowStatusIcon } from '@/components/icons/flow-status-icon';
+import { FlowDeleteDialog, type FlowDeleteMode } from '@/features/flows/flow-delete-dialog';
 import { ProviderIcon } from '@/components/icons/provider-icon';
-import ConfirmationDialog from '@/components/shared/confirmation-dialog';
+
 import {
     DetailNavigationButtons,
     DetailNavigationSheet,
@@ -165,23 +167,27 @@ function Flow() {
         }
     }, [flow, finishFlow]);
 
-    const handleFlowDelete = useCallback(async () => {
-        if (!flow) {
-            return;
-        }
-
-        setIsDeleting(true);
-
-        try {
-            const success = await deleteFlow(flow);
-
-            if (success) {
-                navigate('/flows', { replace: true });
+    const handleFlowDelete = useCallback(
+        async (mode: FlowDeleteMode) => {
+            if (!flow) {
+                return;
             }
-        } finally {
-            setIsDeleting(false);
-        }
-    }, [flow, deleteFlow, navigate]);
+
+            setIsDeleting(true);
+
+            try {
+                const success = await deleteFlow(flow, { purgeFiles: mode === 'purge' });
+
+                if (success) {
+                    setIsDeleteDialogOpen(false);
+                    navigate('/flows', { replace: true });
+                }
+            } finally {
+                setIsDeleting(false);
+            }
+        },
+        [flow, deleteFlow, navigate],
+    );
 
     const [desktopTabsTab, setDesktopTabsTab] = useState<string>('terminal');
 
@@ -216,10 +222,7 @@ function Flow() {
                                 <BreadcrumbItem className="min-w-0 gap-2">
                                     {flow && (
                                         <>
-                                            <FlowStatusIcon
-                                                status={flow.status}
-                                                tooltip={formatName(flow.status)}
-                                            />
+                                            <FlowStatusBadge status={flow.status} />
 
                                             <ProviderIcon
                                                 provider={flow.provider}
@@ -422,14 +425,12 @@ function Flow() {
                     tabsCard
                 )}
             </div>
-            <ConfirmationDialog
-                cancelText="Cancel"
-                confirmText="Delete"
-                handleConfirm={handleFlowDelete}
-                handleOpenChange={setIsDeleteDialogOpen}
+            <FlowDeleteDialog
+                flow={flow ?? null}
+                isDeleting={isDeleting}
                 isOpen={isDeleteDialogOpen}
-                itemName={flow?.title}
-                itemType="flow"
+                onConfirm={handleFlowDelete}
+                onOpenChange={setIsDeleteDialogOpen}
             />
         </>
     );

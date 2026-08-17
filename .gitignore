@@ -35,3 +35,8 @@ data/*
 # OS
 Thumbs.db
 
+
+# local secrets / deploy runtime
+**/api_token.secret
+deploy-custom/**/*.secret
+flow_watch_state.json

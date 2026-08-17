@@ -1,0 +1,1 @@
+import{m as t,v as e}from"./isToday-CoLi9Mfw.js";function n(e,n,o){const[r,s]=t(o?.in,e,n);return 12*(r.getFullYear()-s.getFullYear())+(r.getMonth()-s.getMonth())}function o(t,n){const o=e(t,n?.in),r=o.getMonth();return o.setFullYear(o.getFullYear(),r+1,0),o.setHours(23,59,59,999),o}export{n,o as t};

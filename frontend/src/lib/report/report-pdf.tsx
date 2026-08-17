@@ -612,16 +612,9 @@ export const generatePDFFromMarkdownNew = async (content: string, fileName: stri
     try {
         const doc = <PDFReportDocument content={content} />;
         const blob = await pdf(doc).toBlob();
+        const { saveBlobLocally } = await import('@/lib/local-download');
 
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${fileName}.pdf`;
-        link.style.display = 'none';
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(url);
+        await saveBlobLocally(blob, `${fileName}.pdf`);
     } catch (error) {
         Log.error('Failed to generate PDF:', error);
         throw error;

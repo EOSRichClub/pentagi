@@ -12,6 +12,14 @@ interface FlowStatusIconProps {
     tooltip?: string;
 }
 
+export const FLOW_STATUS_LABELS: Record<StatusType, string> = {
+    [StatusType.Created]: '已创建',
+    [StatusType.Failed]: '失败',
+    [StatusType.Finished]: '已完成',
+    [StatusType.Running]: '进行中',
+    [StatusType.Waiting]: '等待用户输入',
+};
+
 const statusIcons: Record<StatusType, { className: string; icon: LucideIcon }> = {
     [StatusType.Created]: { className: 'text-blue-500', icon: CircleDashed },
     [StatusType.Failed]: { className: 'text-red-500', icon: CircleX },
@@ -27,16 +35,13 @@ export function FlowStatusIcon({ className = 'size-4', status, tooltip }: FlowSt
     }
 
     const { className: defaultClassName, icon: Icon } = statusIcons[status] || defaultIcon;
-    const iconElement = <Icon className={cn('shrink-0', defaultClassName, className, tooltip && 'cursor-pointer')} />;
-
-    if (!tooltip) {
-        return iconElement;
-    }
+    const label = tooltip || FLOW_STATUS_LABELS[status] || status;
+    const iconElement = <Icon className={cn('shrink-0', defaultClassName, className, 'cursor-pointer')} />;
 
     return (
         <Tooltip>
             <TooltipTrigger asChild>{iconElement}</TooltipTrigger>
-            <TooltipContent>{tooltip}</TooltipContent>
+            <TooltipContent>{label}</TooltipContent>
         </Tooltip>
     );
 }

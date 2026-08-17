@@ -1,30 +1,37 @@
 import { Avatar, AvatarFallback } from '@radix-ui/react-avatar';
 import {
     ChevronsUpDown,
-    Clock,
-    FileText,
-    Folder,
     GitFork,
     KeyRound,
     LayoutDashboard,
     LibraryBig,
+    Loader2,
     LogOut,
     Monitor,
     Moon,
+    MoreHorizontal,
+    Pencil,
     Plus,
     Settings,
     Settings2,
     Star,
     Sun,
+    Trash,
     UserIcon,
+    FileText,
+    Folder,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
-import { Link, useMatch, useParams } from 'react-router-dom';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { Link, useMatch, useNavigate, useParams } from 'react-router-dom';
+import { toast } from 'sonner';
 
 import type { Flow } from '@/providers/sidebar-flows-provider';
 import type { Theme } from '@/providers/theme-provider';
 
 import Logo from '@/components/icons/logo';
+import { FlowStatusIcon } from '@/components/icons/flow-status-icon';
+import ConfirmationDialog from '@/components/shared/confirmation-dialog';
+import { InlineEditInput } from '@/components/shared/inline-edit';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
     DropdownMenu,
@@ -51,6 +58,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PasswordChangeForm } from '@/features/authentication/password-change-form';
 import { useResourcesUpload } from '@/features/resources/use-resources-upload';
+import { ResultType, useDeleteFlowMutation, useRenameFlowMutation } from '@/graphql/types';
 import { useTheme } from '@/hooks/use-theme';
 import { useFavorites } from '@/providers/favorites-provider';
 import { useSidebarFlows } from '@/providers/sidebar-flows-provider';
@@ -59,12 +67,29 @@ import { useUser } from '@/providers/user-provider';
 interface FlowMenuItemProps {
     activeFlowId: null | number;
     flow: Flow;
+    isDeleting: boolean;
+    isEditing: boolean;
     isFavorite: boolean;
+    isRenameBusy: boolean;
+    onDeleteRequest: (flow: Flow) => void;
+    onRenameCancel: () => void;
+    onRenameSave: (flowId: string, title: string) => void;
+    onRenameStart: (flow: Flow) => void;
     onToggleFavorite: (flowId: string) => void;
+    renameInputRef: React.RefObject<HTMLInputElement | null>;
 }
 
 export function MainSidebar() {
     const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+    const [editingFlowId, setEditingFlowId] = useState<null | string>(null);
+    const [deletingFlow, setDeletingFlow] = useState<Flow | null>(null);
+    const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
+    const renameInputRef = useRef<HTMLInputElement | null>(null);
+    const [renameFlowMutation, { loading: isRenameLoading }] = useRenameFlowMutation();
+    const [deleteFlowMutation] = useDeleteFlowMutation();
+    const navigate = useNavigate();
+
     const isDashboardActive = useMatch('/dashboard');
     const isFlowsActive = useMatch('/flows/*');
     const isTemplatesActive = useMatch('/templates/*');
@@ -83,22 +108,122 @@ export function MainSidebar() {
 
     const flowId = useMemo(() => (flowIdParam ? Number(flowIdParam) : null), [flowIdParam]);
 
-    const favoriteFlows = useMemo(
-        () =>
-            flows
-                .filter((flow) => favoriteFlowIds.includes(Number(flow.id)))
-                .sort((a, b) => Number(b.id) - Number(a.id)),
-        [flows, favoriteFlowIds],
+    // All flows, newest first — no longer capped at 5 "recent".
+    const allFlows = useMemo(
+        () => [...flows].sort((a, b) => Number(b.id) - Number(a.id)),
+        [flows],
     );
 
-    const recentFlows = useMemo(
+    const favoriteFlows = useMemo(
         () =>
-            flows
-                .filter((flow) => !favoriteFlowIds.includes(Number(flow.id)))
-                .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-                .slice(0, 5),
-        [flows, favoriteFlowIds],
+            allFlows.filter((flow) => favoriteFlowIds.includes(Number(flow.id))),
+        [allFlows, favoriteFlowIds],
     );
+
+    const nonFavoriteFlows = useMemo(
+        () => allFlows.filter((flow) => !favoriteFlowIds.includes(Number(flow.id))),
+        [allFlows, favoriteFlowIds],
+    );
+
+    const handleRenameStart = useCallback((flow: Flow) => {
+        setEditingFlowId(flow.id);
+    }, []);
+
+    const handleRenameCancel = useCallback(() => {
+        setEditingFlowId(null);
+    }, []);
+
+    const handleRenameSave = useCallback(
+        async (targetFlowId: string, rawTitle: string) => {
+            const title = rawTitle.trim();
+
+            if (!title) {
+                toast.error('Title cannot be empty');
+
+                return;
+            }
+
+            try {
+                const { data } = await renameFlowMutation({
+                    refetchQueries: ['flows'],
+                    variables: {
+                        flowId: targetFlowId,
+                        title,
+                    },
+                });
+
+                if (data?.renameFlow === ResultType.Success) {
+                    toast.success('Flow renamed');
+                    setEditingFlowId(null);
+                } else {
+                    toast.error('Failed to rename flow');
+                }
+            } catch (error) {
+                const message = error instanceof Error ? error.message : 'Failed to rename flow';
+
+                toast.error(message);
+            }
+        },
+        [renameFlowMutation],
+    );
+
+    const handleToggleFavorite = useCallback(
+        (id: string) => {
+            if (favoriteFlowIds.includes(Number(id))) {
+                removeFavoriteFlow(id);
+            } else {
+                addFavoriteFlow(id);
+            }
+        },
+        [addFavoriteFlow, favoriteFlowIds, removeFavoriteFlow],
+    );
+
+    const handleDeleteRequest = useCallback((flow: Flow) => {
+        setDeletingFlow(flow);
+        setIsDeleteDialogOpen(true);
+    }, []);
+
+    const handleDeleteConfirm = useCallback(async () => {
+        if (!deletingFlow) {
+            return;
+        }
+
+        const target = deletingFlow;
+        const description = `${target.title || 'Unknown'} (ID: ${target.id})`;
+
+        setIsDeleting(true);
+
+        try {
+            const { data } = await deleteFlowMutation({
+                refetchQueries: ['flows'],
+                variables: { flowId: target.id },
+            });
+
+            if (data?.deleteFlow === ResultType.Success || data?.deleteFlow) {
+                // Best-effort: some builds return ResultType, others may only succeed without errors.
+                if (favoriteFlowIds.includes(Number(target.id))) {
+                    removeFavoriteFlow(target.id);
+                }
+
+                toast.success('Flow deleted', { description });
+                setIsDeleteDialogOpen(false);
+                setDeletingFlow(null);
+
+                // If the user is currently viewing this flow, leave the detail page.
+                if (flowIdParam && String(flowIdParam) === String(target.id)) {
+                    navigate('/flows');
+                }
+            } else {
+                toast.error('Failed to delete flow', { description });
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to delete flow';
+
+            toast.error(message, { description });
+        } finally {
+            setIsDeleting(false);
+        }
+    }, [deleteFlowMutation, deletingFlow, favoriteFlowIds, flowIdParam, navigate, removeFavoriteFlow]);
 
     return (
         <Sidebar collapsible="icon">
@@ -221,33 +346,14 @@ export function MainSidebar() {
                     </SidebarGroupContent>
                 </SidebarGroup>
 
-                {recentFlows.length > 0 && (
-                    <SidebarGroup>
-                        <SidebarGroupLabel className="flex items-center gap-2">
-                            <Clock />
-                            Recent Flows
-                        </SidebarGroupLabel>
-                        <SidebarGroupContent>
-                            <SidebarMenu>
-                                {recentFlows.map((flow) => (
-                                    <FlowMenuItem
-                                        activeFlowId={flowId}
-                                        flow={flow}
-                                        isFavorite={false}
-                                        key={flow.id}
-                                        onToggleFavorite={addFavoriteFlow}
-                                    />
-                                ))}
-                            </SidebarMenu>
-                        </SidebarGroupContent>
-                    </SidebarGroup>
-                )}
-
                 {favoriteFlows.length > 0 && (
                     <SidebarGroup>
                         <SidebarGroupLabel className="flex items-center gap-2">
                             <Star />
-                            Favorite Flows
+                            Favorites
+                            <span className="text-muted-foreground ml-auto text-xs tabular-nums">
+                                {favoriteFlows.length}
+                            </span>
                         </SidebarGroupLabel>
                         <SidebarGroupContent>
                             <SidebarMenu>
@@ -255,15 +361,62 @@ export function MainSidebar() {
                                     <FlowMenuItem
                                         activeFlowId={flowId}
                                         flow={flow}
+                                        isDeleting={isDeleting && deletingFlow?.id === flow.id}
+                                        isEditing={editingFlowId === flow.id}
                                         isFavorite
+                                        isRenameBusy={isRenameLoading && editingFlowId === flow.id}
                                         key={flow.id}
-                                        onToggleFavorite={removeFavoriteFlow}
+                                        onDeleteRequest={handleDeleteRequest}
+                                        onRenameCancel={handleRenameCancel}
+                                        onRenameSave={handleRenameSave}
+                                        onRenameStart={handleRenameStart}
+                                        onToggleFavorite={handleToggleFavorite}
+                                        renameInputRef={renameInputRef}
                                     />
                                 ))}
                             </SidebarMenu>
                         </SidebarGroupContent>
                     </SidebarGroup>
                 )}
+
+                <SidebarGroup className="flex min-h-0 flex-1 flex-col group-data-[collapsible=icon]:hidden">
+                    <SidebarGroupLabel className="flex items-center gap-2">
+                        <GitFork />
+                        All Flows
+                        <span className="text-muted-foreground ml-auto text-xs tabular-nums">
+                            {allFlows.length}
+                        </span>
+                    </SidebarGroupLabel>
+                    <SidebarGroupContent className="min-h-0 flex-1 overflow-y-auto">
+                        <SidebarMenu>
+                            {allFlows.length === 0 && (
+                                <SidebarMenuItem>
+                                    <span className="text-muted-foreground px-2 text-xs">No flows yet</span>
+                                </SidebarMenuItem>
+                            )}
+                            {/* Favorites already listed above; still show them here so the full list is complete.
+                                To avoid duplicates we only render non-favorites when favorites section exists,
+                                otherwise render everything. */}
+                            {(favoriteFlows.length > 0 ? nonFavoriteFlows : allFlows).map((flow) => (
+                                <FlowMenuItem
+                                    activeFlowId={flowId}
+                                    flow={flow}
+                                    isDeleting={isDeleting && deletingFlow?.id === flow.id}
+                                    isEditing={editingFlowId === flow.id}
+                                    isFavorite={favoriteFlowIds.includes(Number(flow.id))}
+                                    isRenameBusy={isRenameLoading && editingFlowId === flow.id}
+                                    key={flow.id}
+                                    onDeleteRequest={handleDeleteRequest}
+                                    onRenameCancel={handleRenameCancel}
+                                    onRenameSave={handleRenameSave}
+                                    onRenameStart={handleRenameStart}
+                                    onToggleFavorite={handleToggleFavorite}
+                                    renameInputRef={renameInputRef}
+                                />
+                            ))}
+                        </SidebarMenu>
+                    </SidebarGroupContent>
+                </SidebarGroup>
             </SidebarContent>
             <SidebarFooter>
                 <SidebarMenu>
@@ -402,16 +555,78 @@ export function MainSidebar() {
                     />
                 </DialogContent>
             </Dialog>
+
+            <ConfirmationDialog
+                cancelText="Cancel"
+                confirmText={isDeleting ? 'Deleting…' : 'Delete'}
+                description={
+                    deletingFlow
+                        ? `Delete flow #${deletingFlow.id} “${deletingFlow.title}”? This cannot be undone.`
+                        : 'Delete this flow? This cannot be undone.'
+                }
+                handleConfirm={() => {
+                    void handleDeleteConfirm();
+                }}
+                handleOpenChange={(open) => {
+                    if (isDeleting) {
+                        return;
+                    }
+
+                    setIsDeleteDialogOpen(open);
+
+                    if (!open) {
+                        setDeletingFlow(null);
+                    }
+                }}
+                isOpen={isDeleteDialogOpen}
+                title="Delete flow"
+            />
         </Sidebar>
     );
 }
 
-function FlowMenuItem({ activeFlowId, flow, isFavorite, onToggleFavorite }: FlowMenuItemProps) {
+function FlowMenuItem({
+    activeFlowId,
+    flow,
+    isDeleting,
+    isEditing,
+    isFavorite,
+    isRenameBusy,
+    onDeleteRequest,
+    onRenameCancel,
+    onRenameSave,
+    onRenameStart,
+    onToggleFavorite,
+    renameInputRef,
+}: FlowMenuItemProps) {
+    if (isEditing) {
+        return (
+            <SidebarMenuItem>
+                <div className="w-full px-1 py-0.5">
+                    <InlineEditInput
+                        autoFocus
+                        busy={isRenameBusy}
+                        defaultValue={flow.title}
+                        inputRef={renameInputRef}
+                        onCancel={onRenameCancel}
+                        onSave={() => {
+                            const value = renameInputRef.current?.value ?? '';
+
+                            void onRenameSave(flow.id, value);
+                        }}
+                        placeholder="Flow title"
+                    />
+                </div>
+            </SidebarMenuItem>
+        );
+    }
+
     return (
         <SidebarMenuItem>
             <SidebarMenuButton
                 asChild
                 isActive={activeFlowId === Number(flow.id)}
+                title={`${flow.id}. ${flow.title}`}
             >
                 <Link to={`/flows/${flow.id}`}>
                     <span className="-mx-2 w-8 shrink-0 text-center text-xs group-data-[state=expanded]:hidden">
@@ -420,18 +635,53 @@ function FlowMenuItem({ activeFlowId, flow, isFavorite, onToggleFavorite }: Flow
                     <span className="text-muted-foreground bg-background dark:bg-muted -my-0.5 -ml-0.5 h-5 min-w-5 shrink-0 rounded-md px-px py-0.5 text-center text-xs group-data-[state=collapsed]:hidden">
                         {flow.id}
                     </span>
+                    <FlowStatusIcon
+                        className="size-3.5 shrink-0 group-data-[state=collapsed]:hidden"
+                        status={flow.status}
+                    />
                     <span className="truncate">{flow.title}</span>
                 </Link>
             </SidebarMenuButton>
-            <SidebarMenuAction
-                aria-label="Toggle favorite"
-                aria-pressed={isFavorite}
-                className="data-[state=open]:bg-accent rounded-sm"
-                onClick={() => onToggleFavorite(flow.id)}
-                showOnHover
-            >
-                <Star className={isFavorite ? 'fill-yellow-500 stroke-yellow-500' : ''} />
-            </SidebarMenuAction>
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <SidebarMenuAction
+                        aria-label="Flow actions"
+                        className="data-[state=open]:bg-accent rounded-sm"
+                        showOnHover
+                    >
+                        {isDeleting ? <Loader2 className="animate-spin" /> : <MoreHorizontal />}
+                    </SidebarMenuAction>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                    align="end"
+                    side="right"
+                    sideOffset={4}
+                >
+                    <DropdownMenuItem onClick={() => onRenameStart(flow)}>
+                        <Pencil className="mr-2 size-4" />
+                        Rename
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onToggleFavorite(flow.id)}>
+                        <Star
+                            className={
+                                isFavorite
+                                    ? 'mr-2 size-4 fill-yellow-500 stroke-yellow-500'
+                                    : 'mr-2 size-4'
+                            }
+                        />
+                        {isFavorite ? 'Unfavorite' : 'Favorite'}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                        className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+                        disabled={isDeleting}
+                        onClick={() => onDeleteRequest(flow)}
+                    >
+                        <Trash className="mr-2 size-4" />
+                        Delete
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
         </SidebarMenuItem>
     );
 }

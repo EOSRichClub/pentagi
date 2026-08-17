@@ -1,16 +1,13 @@
-import { ArrowDownToLine, FolderInput, FolderOutput, FolderUp, Loader2, Search, Upload, X } from 'lucide-react';
+import { Download, FolderPlus, FolderUp, Loader2, Search, Upload, X } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
-import ConfirmationDialog from '@/components/shared/confirmation-dialog';
 import {
     bulkCopyPathsAction,
     bulkDeleteAction,
     bulkDownloadAction,
-    bulkPromoteAction,
     copyPathAction,
     deleteAction,
-    downloadAction,
     FileManager,
     type FileManagerAction,
     type FileManagerBulkAction,
@@ -21,36 +18,41 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/
 import { Form, FormControl, FormField, FormItem } from '@/components/ui/form';
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { StatusType } from '@/graphql/types';
 import { useFilesDragAndDrop } from '@/hooks/use-files-drag-and-drop';
 import { copyToClipboard } from '@/lib/report';
 import { useFlow } from '@/providers/flow-provider';
 
-import { FlowFilesAttachResourcesDialog } from './flow-files-attach-resources-dialog';
-import { ROOT_GROUPS } from './flow-files-constants';
-import { FlowFilesPromoteDialog } from './flow-files-promote-dialog';
-import { FlowFilesPullDialog } from './flow-files-pull-dialog';
-import { buildFlowFilesDownloadHref, pluralizeItems } from './flow-files-utils';
+import { ROOT_GROUPS, UPLOADS_PATH_PREFIX } from './flow-files-constants';
+import { FlowFilesDownloadDialog } from './flow-files-download-dialog';
+import { FlowFilesMkdirDialog } from './flow-files-mkdir-dialog';
+import {
+    buildFlowFilesDownloadHref,
+    buildUniqueDownloadFileName,
+    pluralizeItems,
+    triggerBrowserDownload,
+} from './flow-files-utils';
 import { useFlowFilesData } from './use-flow-files-data';
 import { useFlowFilesDelete } from './use-flow-files-delete';
 import { useFlowFilesRealtime } from './use-flow-files-realtime';
 import { useFlowFilesSearch } from './use-flow-files-search';
 import { useFlowFilesUpload } from './use-flow-files-upload';
 
+/**
+ * Flow Files panel — simplified to Upload + Download (+ mkdir).
+ * Default path is the current flow's data folder.
+ */
 function FlowFiles() {
-    const { flowId, flowStatus } = useFlow();
-    const [isPullDialogOpen, setIsPullDialogOpen] = useState(false);
-    const [isAttachResourcesDialogOpen, setIsAttachResourcesDialogOpen] = useState(false);
-    // Array now: row-action click pushes a single-element array, the bulk bar
-    // pushes the deduped selection. Empty array / null closes the dialog.
-    const [filesToPromote, setFilesToPromote] = useState<FileNode[] | null>(null);
+    const { flowId } = useFlow();
+    const [isDownloadDialogOpen, setIsDownloadDialogOpen] = useState(false);
+    const [isMkdirDialogOpen, setIsMkdirDialogOpen] = useState(false);
+    const [uploadDirectory, setUploadDirectory] = useState(UPLOADS_PATH_PREFIX);
 
-    const { fileNodes, isInitialLoading, isLoading } = useFlowFilesData({ flowId });
+    const { fileNodes, isInitialLoading, isLoading, refetchFiles } = useFlowFilesData({ flowId });
 
     useFlowFilesRealtime({ flowId, isPaused: isLoading });
 
     const search = useFlowFilesSearch();
-    const upload = useFlowFilesUpload({ flowId });
+    const upload = useFlowFilesUpload({ flowId, targetDirectory: uploadDirectory });
     const deletion = useFlowFilesDelete({ flowId });
 
     const canAcceptDrop = !!flowId && !upload.isUploading;
@@ -59,26 +61,18 @@ function FlowFiles() {
         onDrop: upload.uploadFiles,
     });
 
-    const isContainerRunning = flowStatus === StatusType.Running || flowStatus === StatusType.Waiting;
-    const isPullDisabled = !isContainerRunning || isLoading || upload.isUploading;
-
     const handleCopyPath = useCallback(async (file: FileNode) => {
         const wasCopied = await copyToClipboard(file.path);
 
         if (wasCopied) {
-            toast.success('Path copied to clipboard');
+            toast.success('路径已复制');
 
             return;
         }
 
-        toast.error('Failed to copy path');
+        toast.error('复制失败');
     }, []);
 
-    /**
-     * Bulk "copy paths" handler: join every selected file's path with `\n` so the
-     * user can paste a clean newline-separated list straight into the agent chat,
-     * a shell command, or a tool argument. Reports the count for clarity.
-     */
     const handleBulkCopyPaths = useCallback(async (paths: string[]) => {
         if (paths.length === 0) {
             return;
@@ -87,17 +81,38 @@ function FlowFiles() {
         const wasCopied = await copyToClipboard(paths.join('\n'));
 
         if (wasCopied) {
-            toast.success(`${paths.length} ${pluralizeItems(paths.length)} copied to clipboard`);
+            toast.success(`已复制 ${paths.length} 条路径`);
 
             return;
         }
 
-        toast.error('Failed to copy paths');
+        toast.error('复制失败');
     }, []);
 
-    // Single-file row download specialises the bulk URL builder via a 1-element
-    // array. `flowId` may be missing (no flow selected yet) — return '' so
-    // FileManager renders a noop link instead of crashing on `null`.
+    const downloadFileNow = useCallback(
+        (file: FileNode) => {
+            if (!flowId) {
+                toast.error('无法下载：未选择任务流');
+
+                return;
+            }
+
+            const href = buildFlowFilesDownloadHref(flowId, [file]);
+
+            if (!href) {
+                toast.error('无法下载：无效路径');
+
+                return;
+            }
+
+            const name = buildUniqueDownloadFileName(flowId, file);
+
+            triggerBrowserDownload(href, name);
+            toast.success(`已开始下载：${name}`);
+        },
+        [flowId],
+    );
+
     const getRowDownloadHref = useCallback(
         (file: FileNode): string => buildFlowFilesDownloadHref(flowId, [file]) ?? '',
         [flowId],
@@ -108,60 +123,41 @@ function FlowFiles() {
         [flowId],
     );
 
-    const handleRequestPromote = useCallback((file: FileNode) => {
-        setFilesToPromote([file]);
-    }, []);
-
-    const handleClosePromoteDialog = useCallback(() => setFilesToPromote(null), []);
-
-    const promoteAction = useMemo<FileManagerAction>(
+    const downloadRowAction = useMemo<FileManagerAction>(
         () => ({
             appliesToDirs: true,
-            icon: FolderOutput,
-            id: 'flow-files-save-as-resource',
-            label: 'Save as resource',
-            onSelect: handleRequestPromote,
+            getHref: getRowDownloadHref,
+            getHrefDownloadAttr: (file) =>
+                flowId ? buildUniqueDownloadFileName(flowId, file) : file.isDir ? `${file.name}.zip` : file.name,
+            icon: Download,
+            id: 'flow-files-download',
+            label: '下载',
+            onSelect: () => {},
         }),
-        [handleRequestPromote],
+        [flowId, getRowDownloadHref],
     );
 
     const fileManagerActions = useMemo<FileManagerAction[]>(
-        () => [
-            downloadAction(getRowDownloadHref),
-            copyPathAction(handleCopyPath),
-            promoteAction,
-            deleteAction(deletion.requestDelete),
-        ],
-        [getRowDownloadHref, handleCopyPath, promoteAction, deletion.requestDelete],
+        () => [downloadRowAction, copyPathAction(handleCopyPath), deleteAction(deletion.requestDelete)],
+        [downloadRowAction, handleCopyPath, deletion.requestDelete],
     );
 
-    // Bulk-action set: primary "Save as resources" (most common workflow on this
-    // page — promote interesting artifacts into the global library), copy-paths
-    // in overflow, destructive Delete on the right.
     const fileManagerBulkActions = useMemo<FileManagerBulkAction[]>(
         () => [
-            bulkDownloadAction(getBulkDownloadHref),
-            bulkPromoteAction((files) => setFilesToPromote(files)),
+            bulkDownloadAction(getBulkDownloadHref, {
+                getDownloadName: (files) => {
+                    if (files.length === 1 && flowId) {
+                        return buildUniqueDownloadFileName(flowId, files[0]);
+                    }
+
+                    return flowId ? `flow-${flowId}__download.zip` : 'download.zip';
+                },
+            }),
             bulkCopyPathsAction(handleBulkCopyPaths),
             bulkDeleteAction(deletion.deleteFiles),
         ],
-        [deletion.deleteFiles, getBulkDownloadHref, handleBulkCopyPaths],
+        [deletion.deleteFiles, flowId, getBulkDownloadHref, handleBulkCopyPaths],
     );
-
-    const handleOpenPullDialog = useCallback(() => setIsPullDialogOpen(true), []);
-    const handleClosePullDialog = useCallback(() => setIsPullDialogOpen(false), []);
-    const handleOpenAttachResourcesDialog = useCallback(() => setIsAttachResourcesDialogOpen(true), []);
-    const handleCloseAttachResourcesDialog = useCallback(() => setIsAttachResourcesDialogOpen(false), []);
-    const handleDeleteDialogOpenChange = useCallback(
-        (nextOpen: boolean) => {
-            if (!nextOpen) {
-                deletion.clearFileToDelete();
-            }
-        },
-        [deletion],
-    );
-
-    const isAttachResourcesDisabled = !flowId || isLoading || upload.isUploading;
 
     const noFilesState = (
         <Empty>
@@ -169,10 +165,9 @@ function FlowFiles() {
                 <EmptyMedia variant="icon">
                     <FolderUp />
                 </EmptyMedia>
-                <EmptyTitle>No files in cache</EmptyTitle>
+                <EmptyTitle>任务流文件夹为空</EmptyTitle>
                 <EmptyDescription>
-                    Upload files to make them available at <code>/work/uploads</code>, or use Pull to sync files from
-                    the running container. You can also drag &amp; drop files here.
+                    点击上方「上传」添加资料，或等待任务产生报告/数据。可先「新建文件夹」再上传。
                 </EmptyDescription>
             </EmptyHeader>
         </Empty>
@@ -184,9 +179,9 @@ function FlowFiles() {
                 <EmptyMedia variant="icon">
                     <Search />
                 </EmptyMedia>
-                <EmptyTitle>No matches</EmptyTitle>
+                <EmptyTitle>无匹配</EmptyTitle>
                 <EmptyDescription>
-                    No files match <code>{search.debouncedQuery.trim()}</code>. Try a different query.
+                    没有文件匹配 <code>{search.debouncedQuery.trim()}</code>
                 </EmptyDescription>
             </EmptyHeader>
         </Empty>
@@ -212,7 +207,8 @@ function FlowFiles() {
                 <div className="bg-primary/10 border-primary pointer-events-none absolute inset-0 z-30 flex items-center justify-center rounded-lg border-2 border-dashed">
                     <div className="text-primary flex flex-col items-center gap-2">
                         <FolderUp className="size-8" />
-                        <span className="text-sm font-medium">Drop files to upload</span>
+                        <span className="text-sm font-medium">拖放文件到此上传</span>
+                        <span className="text-muted-foreground text-xs">目标：{uploadDirectory}</span>
                     </div>
                 </div>
             )}
@@ -233,7 +229,7 @@ function FlowFiles() {
                                             <InputGroupInput
                                                 {...field}
                                                 autoComplete="off"
-                                                placeholder="Search files..."
+                                                placeholder="搜索文件..."
                                                 type="text"
                                             />
                                             {field.value && (
@@ -256,6 +252,26 @@ function FlowFiles() {
                             <TooltipTrigger asChild>
                                 <span>
                                     <Button
+                                        disabled={!flowId || isLoading}
+                                        onClick={() => setIsMkdirDialogOpen(true)}
+                                        size="icon-sm"
+                                        type="button"
+                                        variant="outline"
+                                    >
+                                        <FolderPlus />
+                                    </Button>
+                                </span>
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-64 text-center text-xs">
+                                <p className="font-medium">新建文件夹</p>
+                                <p className="mt-1">在上传目录下建子文件夹，再上传资料</p>
+                            </TooltipContent>
+                        </Tooltip>
+
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <span>
+                                    <Button
                                         disabled={upload.isUploading || isLoading}
                                         onClick={upload.openFilePicker}
                                         size="icon-sm"
@@ -267,9 +283,10 @@ function FlowFiles() {
                                 </span>
                             </TooltipTrigger>
                             <TooltipContent className="max-w-64 text-center text-xs">
-                                <p className="font-medium">Upload files</p>
+                                <p className="font-medium">上传</p>
                                 <p className="mt-1">
-                                    Pushed to <code>/work/uploads</code> — immediately accessible inside the container.
+                                    上传到当前任务流：
+                                    <code>{uploadDirectory}</code>
                                 </p>
                             </TooltipContent>
                         </Tooltip>
@@ -278,54 +295,35 @@ function FlowFiles() {
                             <TooltipTrigger asChild>
                                 <span>
                                     <Button
-                                        disabled={isAttachResourcesDisabled}
-                                        onClick={handleOpenAttachResourcesDialog}
+                                        disabled={!flowId || isLoading}
+                                        onClick={() => setIsDownloadDialogOpen(true)}
                                         size="icon-sm"
                                         type="button"
                                         variant="outline"
                                     >
-                                        <FolderInput />
+                                        <Download />
                                     </Button>
                                 </span>
                             </TooltipTrigger>
                             <TooltipContent className="max-w-64 text-center text-xs">
-                                <p className="font-medium">Attach resources</p>
-                                <p className="mt-1">
-                                    Copied from the library to <code>/work/resources</code> — immediately accessible
-                                    inside the container.
-                                </p>
-                            </TooltipContent>
-                        </Tooltip>
-
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <span>
-                                    <Button
-                                        disabled={isPullDisabled}
-                                        onClick={handleOpenPullDialog}
-                                        size="icon-sm"
-                                        type="button"
-                                        variant="outline"
-                                    >
-                                        <ArrowDownToLine />
-                                    </Button>
-                                </span>
-                            </TooltipTrigger>
-                            <TooltipContent className="max-w-64 text-center text-xs">
-                                {isContainerRunning ? (
-                                    <>
-                                        <p className="font-medium">Pull file or directory from container</p>
-                                        <p className="mt-1">
-                                            Snapshots are stored separately under <strong>Container</strong>.
-                                        </p>
-                                    </>
-                                ) : (
-                                    <p className="font-medium">Container is not running</p>
-                                )}
+                                <p className="font-medium">下载</p>
+                                <p className="mt-1">打开当前任务流文件夹，勾选后下载报告/数据</p>
                             </TooltipContent>
                         </Tooltip>
                     </div>
                 </Form>
+                <p className="text-muted-foreground mt-2 px-1 text-[11px]">
+                    任务流 #{flowId} 文件夹 · 上传目录 <code>{uploadDirectory}</code>
+                    {uploadDirectory !== UPLOADS_PATH_PREFIX && (
+                        <button
+                            className="text-primary ml-2 underline"
+                            onClick={() => setUploadDirectory(UPLOADS_PATH_PREFIX)}
+                            type="button"
+                        >
+                            重置到 uploads
+                        </button>
+                    )}
+                </p>
             </div>
 
             <FileManager
@@ -335,38 +333,27 @@ function FlowFiles() {
                 emptyState={noFilesState}
                 files={fileNodes}
                 isLoading={isInitialLoading}
+                onOpen={downloadFileNow}
                 rootGroups={ROOT_GROUPS}
                 search={{ emptyState: noMatchesState, query: search.debouncedQuery }}
             />
 
-            <FlowFilesPullDialog
-                cachedFiles={fileNodes}
+            <FlowFilesDownloadDialog
+                fileNodes={fileNodes}
                 flowId={flowId}
-                isOpen={isPullDialogOpen}
-                onClose={handleClosePullDialog}
+                isOpen={isDownloadDialogOpen}
+                onClose={() => setIsDownloadDialogOpen(false)}
             />
 
-            <FlowFilesAttachResourcesDialog
-                cachedFiles={fileNodes}
+            <FlowFilesMkdirDialog
                 flowId={flowId}
-                isOpen={isAttachResourcesDialogOpen}
-                onClose={handleCloseAttachResourcesDialog}
-            />
-
-            <FlowFilesPromoteDialog
-                files={filesToPromote}
-                flowId={flowId}
-                onClose={handleClosePromoteDialog}
-            />
-
-            <ConfirmationDialog
-                confirmText="Delete"
-                handleConfirm={deletion.confirmDelete}
-                handleOpenChange={handleDeleteDialogOpenChange}
-                isOpen={!!deletion.fileToDelete}
-                itemName={deletion.fileToDelete?.name}
-                itemType={deletion.fileToDelete?.isDir ? 'directory' : 'file'}
-                title={deletion.fileToDelete?.isDir ? 'Delete Directory' : 'Delete File'}
+                isOpen={isMkdirDialogOpen}
+                onClose={() => setIsMkdirDialogOpen(false)}
+                onCreated={(path) => {
+                    setUploadDirectory(path);
+                    void refetchFiles();
+                }}
+                parentPath={UPLOADS_PATH_PREFIX}
             />
         </div>
     );

@@ -263,17 +263,14 @@ function Resources() {
     }, []);
 
     /**
-     * "Open" gesture — fires on double-click or Enter for a file row.
-     * Triggers the same download the dropdown's Download action would, by clicking
-     * a transient `<a download>` element. We can't just `window.open()` here because
-     * we want the browser's `download` attribute hint (preserves the original
-     * filename even when the server sends `Content-Disposition: inline`).
+     * "Open" gesture — browser-native download to the default Downloads folder.
      */
     const handleOpenFile = useCallback((file: FileNode) => {
+        const href = buildResourcesDownloadHref([file]);
         const anchor = document.createElement('a');
 
-        anchor.href = buildResourcesDownloadHref([file]);
-        anchor.download = file.name;
+        anchor.href = href;
+        anchor.download = file.isDir ? `${file.name}.zip` : file.name;
         anchor.rel = 'noopener';
         document.body.appendChild(anchor);
         anchor.click();
@@ -302,9 +299,6 @@ function Resources() {
 
     const fileManagerActions = useMemo<FileManagerAction[]>(
         () => [
-            // Row download is the single-file specialisation of the bulk download:
-            // we hand the URL builder a 1-element array so the same backend
-            // contract (`?paths[]=`) is used everywhere.
             downloadAction((file) => buildResourcesDownloadHref([file])),
             copyPathAction(handleCopyPath),
             // Directory-only actions — surfaced both in the row dropdown and
@@ -602,6 +596,7 @@ function Resources() {
                     itemType={deletion.fileToDelete?.isDir ? 'directory' : 'resource'}
                     title={deletion.fileToDelete?.isDir ? 'Delete directory' : 'Delete resource'}
                 />
+
             </div>
         </>
     );

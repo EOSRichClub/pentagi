@@ -23,6 +23,11 @@ const (
 	UploadsDirName   = "uploads"
 	ContainerDirName = "container"
 	ResourcesDirName = "resources"
+	WorkDirName      = "work"
+	// Pinned business folders (always created; shown at top of Files UI).
+	DataDirName    = "data"    // 下载的数据
+	ReportsDirName = "reports" // 报告 MD 文档
+	SourceDirName  = "source"  // 源码
 
 	MaxUploadFileSize    = 300 * 1024 * 1024      // 300 MB
 	MaxUploadFiles       = 1000                   // files
@@ -54,23 +59,34 @@ type TarEntry struct {
 }
 
 func List(dataDir string, flowID uint64) (Files, error) {
-	uploadsEntries, err := ListDirEntries(FlowUploadsDir(dataDir, flowID), UploadsDirName)
-	if err != nil {
-		return Files{}, fmt.Errorf("reading uploads cache: %w", err)
+	// Ensure pinned folders exist so UI always shows them.
+	_ = EnsureFlowDataLayout(dataDir, flowID)
+
+	// Order: pinned first (data/reports/source), then uploads/work/container/resources.
+	// FileManager groups by path prefix; sort within each group still applies.
+	var files []File
+	for _, pair := range []struct {
+		dir    string
+		prefix string
+	}{
+		{filepath.Join(FlowDataDir(dataDir, flowID), DataDirName), DataDirName},
+		{filepath.Join(FlowDataDir(dataDir, flowID), ReportsDirName), ReportsDirName},
+		{filepath.Join(FlowDataDir(dataDir, flowID), SourceDirName), SourceDirName},
+		{FlowUploadsDir(dataDir, flowID), UploadsDirName},
+		{FlowWorkDir(dataDir, flowID), WorkDirName},
+		{FlowContainerDir(dataDir, flowID), ContainerDirName},
+		{FlowResourcesDir(dataDir, flowID), ResourcesDirName},
+	} {
+		entries, err := ListDirEntriesRecursive(pair.dir, pair.prefix)
+		if err != nil {
+			return Files{}, fmt.Errorf("reading %s: %w", pair.prefix, err)
+		}
+		files = append(files, entries...)
 	}
 
-	containerEntries, err := ListDirEntriesRecursive(FlowContainerDir(dataDir, flowID), ContainerDirName)
-	if err != nil {
-		return Files{}, fmt.Errorf("reading container cache: %w", err)
-	}
-
-	resourcesEntries, err := ListDirEntriesRecursive(FlowResourcesDir(dataDir, flowID), ResourcesDirName)
-	if err != nil {
-		return Files{}, fmt.Errorf("reading resources cache: %w", err)
-	}
-
-	files := append(uploadsEntries, containerEntries...)
-	files = append(files, resourcesEntries...)
+	// Keep pinned groups first by sorting only within non-pinned? FileManager
+	// builds tree from flat list and groups by rootGroups order — so path prefix
+	// order in ROOT_GROUPS controls pin. Still sort for stable names.
 	Sort(files)
 	return Files{
 		Files: files,
@@ -80,6 +96,11 @@ func List(dataDir string, flowID uint64) (Files, error) {
 
 func FlowDataDir(dataDir string, flowID uint64) string {
 	return filepath.Join(dataDir, fmt.Sprintf("flow-%d-data", flowID))
+}
+
+// FlowWorkDir is the agent workspace (bind-mounted to container /work).
+func FlowWorkDir(dataDir string, flowID uint64) string {
+	return filepath.Join(FlowDataDir(dataDir, flowID), WorkDirName)
 }
 
 func FlowUploadsDir(dataDir string, flowID uint64) string {
@@ -94,6 +115,41 @@ func FlowResourcesDir(dataDir string, flowID uint64) string {
 	return filepath.Join(FlowDataDir(dataDir, flowID), ResourcesDirName)
 }
 
+// EnsureFlowDataLayout creates the standard per-flow directory tree.
+func EnsureFlowDataLayout(dataDir string, flowID uint64) error {
+	root := FlowDataDir(dataDir, flowID)
+	dirs := []string{
+		root,
+		FlowWorkDir(dataDir, flowID),
+		FlowUploadsDir(dataDir, flowID),
+		FlowResourcesDir(dataDir, flowID),
+		FlowContainerDir(dataDir, flowID),
+		// Pinned business folders (top of Files UI)
+		filepath.Join(root, DataDirName),
+		filepath.Join(root, ReportsDirName),
+		filepath.Join(root, SourceDirName),
+		filepath.Join(FlowWorkDir(dataDir, flowID), UploadsDirName),
+		filepath.Join(FlowWorkDir(dataDir, flowID), ResourcesDirName),
+		// Convenience mirrors under /work for agents
+		filepath.Join(FlowWorkDir(dataDir, flowID), DataDirName),
+		filepath.Join(FlowWorkDir(dataDir, flowID), ReportsDirName),
+		filepath.Join(FlowWorkDir(dataDir, flowID), SourceDirName),
+	}
+	for _, d := range dirs {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			return err
+		}
+	}
+	// Placeholders so empty dirs are visible as entries (optional .gitkeep)
+	for _, name := range []string{DataDirName, ReportsDirName, SourceDirName} {
+		keep := filepath.Join(root, name, ".gitkeep")
+		if _, err := os.Stat(keep); os.IsNotExist(err) {
+			_ = os.WriteFile(keep, []byte(""), 0644)
+		}
+	}
+	return nil
+}
+
 func ResolveCachedPath(dataDir string, flowID uint64, reqPath string) (string, error) {
 	if strings.TrimSpace(reqPath) == "" {
 		return "", errors.New("path query parameter is required")
@@ -105,8 +161,13 @@ func ResolveCachedPath(dataDir string, flowID uint64, reqPath string) (string, e
 	}
 
 	parts := strings.SplitN(cleaned, string(filepath.Separator), 2)
-	if parts[0] != UploadsDirName && parts[0] != ContainerDirName && parts[0] != ResourcesDirName {
-		return "", fmt.Errorf("path must start with '%s', '%s', or '%s'", UploadsDirName, ContainerDirName, ResourcesDirName)
+	root := parts[0]
+	allowed := map[string]bool{
+		UploadsDirName: true, WorkDirName: true, ContainerDirName: true, ResourcesDirName: true,
+		DataDirName: true, ReportsDirName: true, SourceDirName: true,
+	}
+	if !allowed[root] {
+		return "", fmt.Errorf("path must start with uploads/work/data/reports/source/container/resources")
 	}
 
 	flowDataDir := FlowDataDir(dataDir, flowID)
@@ -116,6 +177,39 @@ func ResolveCachedPath(dataDir string, flowID uint64, reqPath string) (string, e
 	}
 
 	return absPath, nil
+}
+
+// SanitizeRelativeDir validates a relative directory under allowed flow roots.
+func SanitizeRelativeDir(rel string) (string, error) {
+	trimmed := strings.TrimSpace(rel)
+	if trimmed == "" || trimmed == "." || trimmed == UploadsDirName {
+		return UploadsDirName, nil
+	}
+	normalized := strings.ReplaceAll(trimmed, "\\", "/")
+	clean := path.Clean("/" + normalized)
+	clean = strings.TrimPrefix(clean, "/")
+	if clean == "" || clean == "." {
+		return UploadsDirName, nil
+	}
+	if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
+		return "", fmt.Errorf("invalid directory path")
+	}
+	parts := strings.Split(clean, "/")
+	allowedRoots := map[string]bool{
+		UploadsDirName: true, WorkDirName: true,
+		DataDirName: true, ReportsDirName: true, SourceDirName: true,
+	}
+	if !allowedRoots[parts[0]] {
+		// bare name → under uploads
+		clean = path.Join(UploadsDirName, clean)
+		parts = strings.Split(clean, "/")
+	}
+	for _, p := range parts {
+		if _, err := validatePathComponent(p); err != nil {
+			return "", fmt.Errorf("invalid path component '%s': %w", p, err)
+		}
+	}
+	return clean, nil
 }
 
 func SanitizeFileName(fileName string) (string, error) {

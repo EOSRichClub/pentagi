@@ -89,14 +89,83 @@ func (s *FlowFileService) GetFlowFiles(c *gin.Context) {
 		return
 	}
 
-	if _, err := s.getFlow(c, flowID, false); err != nil {
+	flow, err := s.getFlow(c, flowID, false)
+	if err != nil {
 		s.handleFlowLookupError(c, flowID, err)
 		return
+	}
+
+	// Best-effort: keep main deliverables under container/ in sync with the live
+	// terminal /work so the Files panel always shows the latest content (and
+	// versioned backups when the agent overwrites same-named files).
+	if added, updated := s.syncWorkDeliverablesBestEffort(c.Request.Context(), flowID); len(added)+len(updated) > 0 {
+		if len(added) > 0 {
+			s.publishFlowFilesAdded(c.Request.Context(), flow, added)
+		}
+		for _, f := range updated {
+			s.publishFlowFileUpdated(c.Request.Context(), flow, f)
+		}
 	}
 
 	files, err := s.listFlowFiles(flowID)
 	if err != nil {
 		logger.FromContext(c).WithError(err).WithField("flow_id", flowID).Error("error listing flow files")
+		response.Error(c, response.ErrInternal, err)
+		return
+	}
+
+	response.Success(c, http.StatusOK, models.FlowFiles{
+		Files: files,
+		Total: uint64(len(files)),
+	})
+}
+
+// SyncFlowFiles refreshes the container file cache from the running terminal.
+// Same-named regular files that change are version-backed-up; the main path
+// always holds the latest content.
+// @Summary Sync deliverable files from the running container into the local cache
+// @Tags FlowFiles
+// @Produce json
+// @Security BearerAuth
+// @Param flowID path int true "flow id" minimum(0)
+// @Success 200 {object} response.successResp{data=models.FlowFiles} "cache refreshed"
+// @Failure 400 {object} response.errorResp "invalid request"
+// @Failure 403 {object} response.errorResp "not permitted"
+// @Failure 404 {object} response.errorResp "flow not found"
+// @Failure 500 {object} response.errorResp "internal error"
+// @Router /flows/{flowID}/files/sync [post]
+func (s *FlowFileService) SyncFlowFiles(c *gin.Context) {
+	flowID, err := parseFlowIDParam(c)
+	if err != nil {
+		logger.FromContext(c).WithError(err).Error("error parsing flow id")
+		response.Error(c, response.ErrFlowFilesInvalidRequest, err)
+		return
+	}
+
+	flow, err := s.getFlow(c, flowID, true)
+	if err != nil {
+		s.handleFlowLookupError(c, flowID, err)
+		return
+	}
+
+	privs := c.GetStringSlice("prm")
+	if !slices.Contains(privs, "containers.admin") && !slices.Contains(privs, "containers.view") {
+		// Still allow flow_files viewers to refresh; sync only touches the cache.
+		// Privilege check for containers is soft: best-effort continues without docker.
+		_ = privs
+	}
+
+	added, updated := s.syncWorkDeliverablesBestEffort(c.Request.Context(), flowID)
+	if len(added) > 0 {
+		s.publishFlowFilesAdded(c.Request.Context(), flow, added)
+	}
+	for _, f := range updated {
+		s.publishFlowFileUpdated(c.Request.Context(), flow, f)
+	}
+
+	files, err := s.listFlowFiles(flowID)
+	if err != nil {
+		logger.FromContext(c).WithError(err).WithField("flow_id", flowID).Error("error listing flow files after sync")
 		response.Error(c, response.ErrInternal, err)
 		return
 	}
@@ -165,7 +234,34 @@ func (s *FlowFileService) UploadFlowFiles(c *gin.Context) {
 		return
 	}
 
-	uploadDir := s.flowUploadsDir(flowID)
+	// Optional relative directory under uploads/ (form field: directory or path).
+	targetRel := flowfiles.UploadsDirName
+	if multipartForm.Value != nil {
+		if vals := multipartForm.Value["directory"]; len(vals) > 0 && strings.TrimSpace(vals[0]) != "" {
+			targetRel = vals[0]
+		} else if vals := multipartForm.Value["path"]; len(vals) > 0 && strings.TrimSpace(vals[0]) != "" {
+			targetRel = vals[0]
+		}
+	}
+	targetRel, err = flowfiles.SanitizeRelativeDir(targetRel)
+	if err != nil {
+		logger.FromContext(c).WithError(err).WithField("flow_id", flowID).Error("invalid upload directory")
+		response.Error(c, response.ErrFlowFilesInvalidRequest, err)
+		return
+	}
+
+	if err := flowfiles.EnsureFlowDataLayout(s.dataDir, flowID); err != nil {
+		logger.FromContext(c).WithError(err).WithField("flow_id", flowID).Error("error ensuring flow data layout")
+		response.Error(c, response.ErrInternal, err)
+		return
+	}
+
+	uploadDir, err := s.resolveCachedPath(flowID, targetRel)
+	if err != nil {
+		logger.FromContext(c).WithError(err).WithField("flow_id", flowID).Error("error resolving upload directory")
+		response.Error(c, response.ErrFlowFilesInvalidRequest, err)
+		return
+	}
 	if err := os.MkdirAll(uploadDir, 0755); err != nil {
 		logger.FromContext(c).WithError(err).WithField("flow_id", flowID).Error("error creating upload directory")
 		response.Error(c, response.ErrInternal, err)
@@ -225,7 +321,7 @@ func (s *FlowFileService) UploadFlowFiles(c *gin.Context) {
 			return
 		}
 		if exists {
-			err = fmt.Errorf("flow file '%s' already exists", fileName)
+			err = fmt.Errorf("flow file '%s' already exists", path.Join(targetRel, fileName))
 			logger.FromContext(c).WithError(err).WithFields(map[string]any{
 				"flow_id":   flowID,
 				"file_name": fileName,
@@ -234,7 +330,8 @@ func (s *FlowFileService) UploadFlowFiles(c *gin.Context) {
 			return
 		}
 
-		pending = append(pending, pendingUpload{fileName: fileName, dstPath: dstPath})
+		// fileName stored as relative display path under flow data for push/list
+		pending = append(pending, pendingUpload{fileName: path.Join(targetRel, fileName), dstPath: dstPath})
 	}
 
 	// All files passed validation — write temporary files first to avoid partial commits on copy errors.
@@ -278,11 +375,16 @@ func (s *FlowFileService) UploadFlowFiles(c *gin.Context) {
 			return
 		}
 
+		// TarPath is relative to container /work. fileName is already like uploads/sub/x.txt.
+		tarPath := p.fileName
+		if !strings.HasPrefix(tarPath, flowfiles.UploadsDirName+"/") && tarPath != flowfiles.UploadsDirName {
+			tarPath = path.Join(flowfiles.UploadsDirName, path.Base(p.fileName))
+		}
 		pushEntries = append(pushEntries, flowfiles.TarEntry{
 			LocalPath: p.dstPath,
-			TarPath:   path.Join(flowfiles.UploadsDirName, p.fileName),
+			TarPath:   tarPath,
 		})
-		savedFiles = append(savedFiles, convertFlowFile(flowfiles.NewFile(info, flowfiles.UploadsDirName)))
+		savedFiles = append(savedFiles, convertFlowFile(flowfiles.NewFileWithPath(info, p.fileName)))
 	}
 
 	// Best-effort: one tar stream + one CopyToContainer for all new uploads.
@@ -299,6 +401,90 @@ func (s *FlowFileService) UploadFlowFiles(c *gin.Context) {
 		Files: savedFiles,
 		Total: uint64(len(savedFiles)),
 	})
+}
+
+// MkdirFlowFiles creates a directory under the flow data tree (uploads/ or work/).
+// @Summary Create a directory in the flow file tree
+// @Tags FlowFiles
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param flowID path int true "flow id" minimum(0)
+// @Param body body map[string]string true "JSON body with path field, e.g. {\"path\":\"uploads/客户A\"}"
+// @Success 200 {object} response.successResp{data=models.FlowFile} "directory created"
+// @Failure 400 {object} response.errorResp "invalid request"
+// @Failure 403 {object} response.errorResp "not permitted"
+// @Failure 404 {object} response.errorResp "flow not found"
+// @Failure 409 {object} response.errorResp "already exists"
+// @Failure 500 {object} response.errorResp "internal error"
+// @Router /flows/{flowID}/files/mkdir [post]
+func (s *FlowFileService) MkdirFlowFiles(c *gin.Context) {
+	flowID, err := parseFlowIDParam(c)
+	if err != nil {
+		logger.FromContext(c).WithError(err).Error("error parsing flow id")
+		response.Error(c, response.ErrFlowFilesInvalidRequest, err)
+		return
+	}
+
+	flow, err := s.getFlow(c, flowID, true)
+	if err != nil {
+		s.handleFlowLookupError(c, flowID, err)
+		return
+	}
+
+	var body struct {
+		Path string `json:"path"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, response.ErrFlowFilesInvalidRequest, err)
+		return
+	}
+
+	rel, err := flowfiles.SanitizeRelativeDir(body.Path)
+	if err != nil {
+		response.Error(c, response.ErrFlowFilesInvalidRequest, err)
+		return
+	}
+	// Allow mkdir under work/ as well as uploads/
+	if !strings.HasPrefix(rel, flowfiles.UploadsDirName) && !strings.HasPrefix(rel, flowfiles.WorkDirName) {
+		rel = path.Join(flowfiles.UploadsDirName, rel)
+	}
+
+	if err := flowfiles.EnsureFlowDataLayout(s.dataDir, flowID); err != nil {
+		response.Error(c, response.ErrInternal, err)
+		return
+	}
+
+	absPath, err := s.resolveCachedPath(flowID, rel)
+	if err != nil {
+		response.Error(c, response.ErrFlowFilesInvalidRequest, err)
+		return
+	}
+
+	exists, err := flowfiles.LocalEntryExists(absPath)
+	if err != nil {
+		response.Error(c, response.ErrInternal, err)
+		return
+	}
+	if exists {
+		response.Error(c, response.ErrFlowFilesAlreadyExists, fmt.Errorf("path already exists: %s", rel))
+		return
+	}
+
+	if err := os.MkdirAll(absPath, 0755); err != nil {
+		response.Error(c, response.ErrInternal, err)
+		return
+	}
+
+	info, err := os.Stat(absPath)
+	if err != nil {
+		response.Error(c, response.ErrInternal, err)
+		return
+	}
+
+	file := convertFlowFile(flowfiles.NewFileWithPath(info, rel))
+	s.publishFlowFilesAdded(c.Request.Context(), flow, []models.FlowFile{file})
+	response.Success(c, http.StatusOK, file)
 }
 
 // DeleteFlowFile is a function to delete one or more cached flow files or directories by path.
@@ -803,36 +989,94 @@ func (s *FlowFileService) PullFlowFiles(c *gin.Context) {
 			return
 		}
 
+		// Regular files: keep main path as the latest content and rename any
+		// previous different content to a versioned sibling (*.vN_prev_*.ext).
+		// Directories / type mismatches still force-replace via RemoveAll.
+		var versionedBackup models.FlowFile
+		var hasVersionedBackup bool
+		commitResult := flowfiles.CommitCreated
+
 		if entry.targetExists {
-			if err := os.RemoveAll(entry.localTarget); err != nil {
+			localInfo, localErr := os.Lstat(entry.localTarget)
+			stagedInfo, stagedErr := os.Lstat(stagedTarget)
+			if localErr == nil && stagedErr == nil &&
+				localInfo.Mode().IsRegular() && stagedInfo.Mode().IsRegular() {
+				backupPath, result, commitErr := flowfiles.CommitStagedWithVersionBackup(entry.localTarget, stagedTarget)
+				os.RemoveAll(stagingDir)
+				if commitErr != nil {
+					logger.FromContext(c).WithError(commitErr).WithFields(map[string]any{
+						"flow_id":    flowID,
+						"cache_path": entry.cacheRelPath,
+					}).Error("error committing pulled file with version backup")
+					response.Error(c, response.ErrInternal, commitErr)
+					return
+				}
+				commitResult = result
+				if backupPath != "" {
+					if bInfo, bErr := os.Lstat(backupPath); bErr == nil {
+						backupRel := path.Join(
+							flowfiles.ContainerDirName,
+							path.Dir(entry.cacheRelPath),
+							filepath.Base(backupPath),
+						)
+						backupRel = path.Clean(backupRel)
+						versionedBackup = convertFlowFile(flowfiles.NewFileWithPath(bInfo, backupRel))
+						hasVersionedBackup = true
+					}
+				}
+			} else {
+				if err := os.RemoveAll(entry.localTarget); err != nil {
+					os.RemoveAll(stagingDir)
+					logger.FromContext(c).WithError(err).WithFields(map[string]any{
+						"flow_id":    flowID,
+						"cache_path": entry.cacheRelPath,
+					}).Error("error removing existing cache entry before forced pull")
+					response.Error(c, response.ErrInternal, err)
+					return
+				}
+				if err := os.MkdirAll(filepath.Dir(entry.localTarget), 0755); err != nil {
+					os.RemoveAll(stagingDir)
+					logger.FromContext(c).WithError(err).WithFields(map[string]any{
+						"flow_id":    flowID,
+						"cache_path": entry.cacheRelPath,
+					}).Error("error creating container cache parent directory")
+					response.Error(c, response.ErrInternal, err)
+					return
+				}
+				if err := os.Rename(stagedTarget, entry.localTarget); err != nil {
+					os.RemoveAll(stagingDir)
+					logger.FromContext(c).WithError(err).WithFields(map[string]any{
+						"flow_id":    flowID,
+						"cache_path": entry.cacheRelPath,
+					}).Error("error committing pulled container entry")
+					response.Error(c, response.ErrInternal, err)
+					return
+				}
+				os.RemoveAll(stagingDir)
+				commitResult = flowfiles.CommitUpdated
+			}
+		} else {
+			if err := os.MkdirAll(filepath.Dir(entry.localTarget), 0755); err != nil {
 				os.RemoveAll(stagingDir)
 				logger.FromContext(c).WithError(err).WithFields(map[string]any{
 					"flow_id":    flowID,
 					"cache_path": entry.cacheRelPath,
-				}).Error("error removing existing cache entry before forced pull")
+				}).Error("error creating container cache parent directory")
 				response.Error(c, response.ErrInternal, err)
 				return
 			}
-		}
-		if err := os.MkdirAll(filepath.Dir(entry.localTarget), 0755); err != nil {
+			if err := os.Rename(stagedTarget, entry.localTarget); err != nil {
+				os.RemoveAll(stagingDir)
+				logger.FromContext(c).WithError(err).WithFields(map[string]any{
+					"flow_id":    flowID,
+					"cache_path": entry.cacheRelPath,
+				}).Error("error committing pulled container entry")
+				response.Error(c, response.ErrInternal, err)
+				return
+			}
 			os.RemoveAll(stagingDir)
-			logger.FromContext(c).WithError(err).WithFields(map[string]any{
-				"flow_id":    flowID,
-				"cache_path": entry.cacheRelPath,
-			}).Error("error creating container cache parent directory")
-			response.Error(c, response.ErrInternal, err)
-			return
+			commitResult = flowfiles.CommitCreated
 		}
-		if err := os.Rename(stagedTarget, entry.localTarget); err != nil {
-			os.RemoveAll(stagingDir)
-			logger.FromContext(c).WithError(err).WithFields(map[string]any{
-				"flow_id":    flowID,
-				"cache_path": entry.cacheRelPath,
-			}).Error("error committing pulled container entry")
-			response.Error(c, response.ErrInternal, err)
-			return
-		}
-		os.RemoveAll(stagingDir)
 
 		info, err := os.Lstat(entry.localTarget)
 		if err != nil {
@@ -863,11 +1107,25 @@ func (s *FlowFileService) PullFlowFiles(c *gin.Context) {
 				}
 			}
 		}
+		if hasVersionedBackup {
+			// Surface the preserved previous version so the Files panel shows both.
+			syncedFiles = append(syncedFiles, versionedBackup)
+			addedFiles = append(addedFiles, versionedBackup)
+		}
 		syncedFiles = append(syncedFiles, expanded...)
-		if entry.targetExists {
-			updatedFiles = append(updatedFiles, expanded...)
-		} else {
+		switch commitResult {
+		case flowfiles.CommitCreated:
 			addedFiles = append(addedFiles, expanded...)
+		case flowfiles.CommitUpdated:
+			updatedFiles = append(updatedFiles, expanded...)
+		case flowfiles.CommitUnchanged:
+			// Content already matched cache; still return the entry for the caller.
+		default:
+			if entry.targetExists {
+				updatedFiles = append(updatedFiles, expanded...)
+			} else {
+				addedFiles = append(addedFiles, expanded...)
+			}
 		}
 	}
 
@@ -1075,6 +1333,202 @@ func (s *FlowFileService) listFlowFiles(flowID uint64) ([]models.FlowFile, error
 	}
 
 	return convertFlowFiles(files.Files), nil
+}
+
+// deliverableExts are file extensions auto-synced from container /work into the
+// flow file cache so agent-produced reports/HTML stay visible and up to date.
+// Kept intentionally narrow: broad globs (json/txt) would flood the Files panel
+// with intermediate agent scratch files.
+var deliverableExts = map[string]struct{}{
+	".html": {},
+	".htm":  {},
+	".md":   {},
+}
+
+const maxAutoSyncFileSize = 50 * 1024 * 1024 // 50 MB per file
+
+// syncWorkDeliverablesBestEffort copies deliverable files from the running
+// primary terminal's /work into flow-{id}-data/container/, keeping the main
+// filename as the latest content and writing previous versions as
+// name.vN_prev_TIMESTAMP.ext. Failures are logged and ignored.
+func (s *FlowFileService) syncWorkDeliverablesBestEffort(ctx context.Context, flowID uint64) (added, updated []models.FlowFile) {
+	if s.dockerClient == nil {
+		return nil, nil
+	}
+
+	containerName := primaryContainerName(flowID)
+	running, err := s.dockerClient.IsContainerRunning(ctx, containerName)
+	if err != nil || !running {
+		return nil, nil
+	}
+
+	reader, _, err := s.dockerClient.CopyFromContainer(ctx, containerName, docker.WorkFolderPathInContainer)
+	if err != nil {
+		return nil, nil
+	}
+	defer reader.Close()
+
+	containerDir := s.flowContainerDir(flowID)
+	if err := os.MkdirAll(containerDir, 0755); err != nil {
+		return nil, nil
+	}
+
+	stagingDir, err := os.MkdirTemp(containerDir, ".sync-*")
+	if err != nil {
+		return nil, nil
+	}
+	defer os.RemoveAll(stagingDir)
+
+	if err := flowfiles.ExtractTar(reader, stagingDir); err != nil {
+		return nil, nil
+	}
+
+	// Docker archive of /work usually lands as stagingDir/work/...
+	workRoot := filepath.Join(stagingDir, "work")
+	if _, err := os.Lstat(workRoot); err != nil {
+		// Some runtimes may unpack contents directly into stagingDir.
+		workRoot = stagingDir
+	}
+
+	// Build set of existing non-versioned cache files under container/ to refresh.
+	existing := map[string]struct{}{}
+	_ = filepath.WalkDir(containerDir, func(p string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil || d == nil {
+			return nil
+		}
+		if d.IsDir() {
+			base := d.Name()
+			if strings.HasPrefix(base, ".pull-") || strings.HasPrefix(base, ".sync-") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		if flowfiles.IsVersionedBackupName(d.Name()) {
+			return nil
+		}
+		rel, relErr := filepath.Rel(containerDir, p)
+		if relErr != nil {
+			return nil
+		}
+		existing[filepath.ToSlash(rel)] = struct{}{}
+		return nil
+	})
+
+	type candidate struct {
+		staged string
+		rel    string // relative to containerDir, e.g. "work/vlink_workbench.html"
+	}
+	var candidates []candidate
+
+	_ = filepath.WalkDir(workRoot, func(p string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil || d == nil {
+			return nil
+		}
+		name := d.Name()
+		if d.IsDir() {
+			switch name {
+			case "node_modules", ".git", "__pycache__", ".pull-temp", "js_crypto":
+				return filepath.SkipDir
+			}
+			if strings.HasPrefix(name, ".pull-") || strings.HasPrefix(name, ".sync-") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !d.Type().IsRegular() || flowfiles.IsVersionedBackupName(name) {
+			return nil
+		}
+		info, infoErr := d.Info()
+		if infoErr != nil || info.Size() > maxAutoSyncFileSize || info.Size() < 0 {
+			return nil
+		}
+
+		relToWork, relErr := filepath.Rel(workRoot, p)
+		if relErr != nil {
+			return nil
+		}
+		relSlash := filepath.ToSlash(relToWork)
+		if relSlash == "." || strings.HasPrefix(relSlash, "..") {
+			return nil
+		}
+		// Cache path under container/: work/<rel>
+		cacheRel := path.Join("work", relSlash)
+
+		// Only auto-sync deliverable report/HTML types (never bulk scratch data).
+		ext := strings.ToLower(path.Ext(name))
+		if _, deliverable := deliverableExts[ext]; !deliverable {
+			return nil
+		}
+		// Sync if already in cache OR top-level under /work.
+		_, already := existing[cacheRel]
+		topLevel := !strings.Contains(relSlash, "/")
+		if !already && !topLevel {
+			return nil
+		}
+
+		candidates = append(candidates, candidate{staged: p, rel: cacheRel})
+		return nil
+	})
+
+	for _, cand := range candidates {
+		mainPath := filepath.Join(containerDir, filepath.FromSlash(cand.rel))
+		// Copy staged to a temp next to main so Commit can rename safely across dirs.
+		tmp, err := os.CreateTemp(filepath.Dir(mainPath), ".sync-file-*")
+		if err != nil {
+			// Ensure parent exists for first-time creates.
+			if mkErr := os.MkdirAll(filepath.Dir(mainPath), 0755); mkErr != nil {
+				continue
+			}
+			tmp, err = os.CreateTemp(filepath.Dir(mainPath), ".sync-file-*")
+			if err != nil {
+				continue
+			}
+		}
+		tmpPath := tmp.Name()
+		src, openErr := os.Open(cand.staged)
+		if openErr != nil {
+			tmp.Close()
+			os.Remove(tmpPath)
+			continue
+		}
+		_, copyErr := io.Copy(tmp, src)
+		src.Close()
+		tmp.Close()
+		if copyErr != nil {
+			os.Remove(tmpPath)
+			continue
+		}
+		_ = os.Chmod(tmpPath, 0644)
+
+		backupPath, result, commitErr := flowfiles.CommitStagedWithVersionBackup(mainPath, tmpPath)
+		if commitErr != nil {
+			os.Remove(tmpPath)
+			continue
+		}
+
+		relPath := path.Join(flowfiles.ContainerDirName, cand.rel)
+		if info, statErr := os.Lstat(mainPath); statErr == nil {
+			f := convertFlowFile(flowfiles.NewFileWithPath(info, relPath))
+			switch result {
+			case flowfiles.CommitCreated:
+				added = append(added, f)
+			case flowfiles.CommitUpdated:
+				updated = append(updated, f)
+			}
+		}
+		if backupPath != "" {
+			if bInfo, bErr := os.Lstat(backupPath); bErr == nil {
+				bRel := path.Join(flowfiles.ContainerDirName, path.Dir(cand.rel), filepath.Base(backupPath))
+				bRel = path.Clean(bRel)
+				added = append(added, convertFlowFile(flowfiles.NewFileWithPath(bInfo, bRel)))
+			}
+		}
+	}
+
+	return added, updated
 }
 
 func (s *FlowFileService) handleFlowLookupError(c *gin.Context, flowID uint64, err error) {

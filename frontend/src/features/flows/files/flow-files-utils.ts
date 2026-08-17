@@ -4,7 +4,15 @@ import type { FlowFileFragmentFragment } from '@/graphql/types';
 import { buildPathsQuery } from '@/features/resources/resources-utils';
 import { baseUrl } from '@/models/api';
 
-import { CONTAINER_PATH_PREFIX, RESOURCES_PATH_PREFIX, UPLOADS_PATH_PREFIX } from './flow-files-constants';
+import {
+    CONTAINER_PATH_PREFIX,
+    DATA_PATH_PREFIX,
+    REPORTS_PATH_PREFIX,
+    RESOURCES_PATH_PREFIX,
+    SOURCE_PATH_PREFIX,
+    UPLOADS_PATH_PREFIX,
+    WORK_PATH_PREFIX,
+} from './flow-files-constants';
 
 /**
  * Wire shape of `models.ContainerFiles`. `path` echoes back the queried path
@@ -48,7 +56,15 @@ export interface RestFlowFile {
     size: number;
 }
 
-const ROOT_PREFIXES = [`${UPLOADS_PATH_PREFIX}/`, `${CONTAINER_PATH_PREFIX}/`, `${RESOURCES_PATH_PREFIX}/`];
+const ROOT_PREFIXES = [
+    `${DATA_PATH_PREFIX}/`,
+    `${REPORTS_PATH_PREFIX}/`,
+    `${SOURCE_PATH_PREFIX}/`,
+    `${UPLOADS_PATH_PREFIX}/`,
+    `${WORK_PATH_PREFIX}/`,
+    `${CONTAINER_PATH_PREFIX}/`,
+    `${RESOURCES_PATH_PREFIX}/`,
+];
 
 /**
  * Strips the synthetic root group prefix (`uploads/`, `container/`, `resources/`)
@@ -66,20 +82,131 @@ export const stripFlowRootPrefix = (path: string): string => {
 };
 
 /**
+ * Normalise a user-typed or FileManager path into the cache-relative form the
+ * backend accepts: must start with `uploads/`, `container/`, or `resources/`
+ * and must NOT have a leading `/`.
+ *
+ * Common user mistakes we repair:
+ *   - `/work/foo`          → `container/work/foo`
+ *   - `work/foo`           → `container/work/foo`
+ *   - `/uploads/a.txt`     → `uploads/a.txt`
+ *   - `/container/etc`     → `container/etc`
+ */
+export const normalizeFlowCachePath = (input: string): string => {
+    let path = input.trim().replace(/\\/g, '/');
+
+    while (path.startsWith('/')) {
+        path = path.slice(1);
+    }
+
+    if (!path || path === '.') {
+        return '';
+    }
+
+    // Bare work paths stay as work/ (agent workspace); legacy /work/* still ok.
+    if (path.startsWith('work/')) {
+        return path;
+    }
+
+    return path;
+};
+
+/**
  * Build the absolute download URL for one or more flow files. Returns `null`
  * when no flow is selected so callers can disable the download UI without
  * checking `flowId` themselves. The backend decides the response shape on its
  * own (single file → attachment, single directory → `<dirname>.zip`, multiple
  * paths → `download.zip`); callers just pass the file list.
+ *
+ * Prefer the simple query form `?path=` for a single file (matches backend
+ * tests and avoids any ambiguity around `paths[]` encoding).
  */
 export const buildFlowFilesDownloadHref = (flowId: null | string, files: readonly FileNode[]): null | string => {
-    if (!flowId) {
+    if (!flowId || files.length === 0) {
         return null;
     }
 
-    const query = buildPathsQuery(files.map((file) => file.path));
+    const normalised = files
+        .map((file) => normalizeFlowCachePath(file.path))
+        .filter((path) => path.length > 0);
 
-    return `${baseUrl}/flows/${flowId}/files/download?${query}`;
+    if (normalised.length === 0) {
+        return null;
+    }
+
+    if (normalised.length === 1) {
+        return `${baseUrl}/flows/${flowId}/files/download?path=${encodeURIComponent(normalised[0])}`;
+    }
+
+    return `${baseUrl}/flows/${flowId}/files/download?${buildPathsQuery(normalised)}`;
+};
+
+/** Trigger a browser-native download (default Downloads folder). */
+export const triggerBrowserDownload = (href: string, fileName?: string): void => {
+    const anchor = document.createElement('a');
+
+    anchor.href = href;
+    anchor.rel = 'noopener';
+
+    if (fileName) {
+        anchor.download = fileName;
+    }
+
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+};
+
+/**
+ * Unique local filename so multi-flow / multi-report downloads never collide
+ * in the browser Downloads folder.
+ *
+ * Example: `flow-25__container__work__final_pentest_report.md`
+ */
+export const buildUniqueDownloadFileName = (flowId: string, file: FileNode): string => {
+    const rawPath = normalizeFlowCachePath(file.path) || file.name;
+    const isZip = Boolean(file.isDir);
+    const pathForName = isZip ? rawPath : rawPath.replace(/\.md$/i, '');
+    const slug = pathForName
+        .replace(/\\/g, '/')
+        .replace(/^\/+/, '')
+        .replace(/\//g, '__')
+        .replace(/[^a-zA-Z0-9._\u4e00-\u9fff-]+/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_|_$/g, '');
+
+    const base = slug || (file.name || 'report').replace(/\.md$/i, '');
+    const ext = isZip ? 'zip' : 'md';
+
+    return `flow-${flowId}__${base}.${ext}`;
+};
+
+/** True for markdown files we treat as downloadable reports. */
+export const isMarkdownReportFile = (file: FileNode): boolean => {
+    if (file.isDir) {
+        return false;
+    }
+
+    const name = (file.name || '').toLowerCase();
+    const path = (file.path || '').toLowerCase();
+
+    return name.endsWith('.md') || path.endsWith('.md');
+};
+
+export const formatFileSizeShort = (bytes: number | undefined): string => {
+    if (bytes == null || !Number.isFinite(bytes)) {
+        return '';
+    }
+
+    if (bytes < 1024) {
+        return `${bytes} B`;
+    }
+
+    if (bytes < 1024 * 1024) {
+        return `${(bytes / 1024).toFixed(1)} KB`;
+    }
+
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
 export const toFileNode = (file: FlowFile): FileNode => ({

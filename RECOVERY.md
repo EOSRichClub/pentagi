@@ -9,9 +9,11 @@
 1. Git 分支：`server-backup-2026-10-11`
 2. Git 标签：`server-backup-2026-10-11`
 3. 镜像清单：`deploy-current/images.lock.json`
-4. 加密运行数据：本机保存的
-   `pentagi-recovery-20261011.tar.zst.enc`（以实际生成文件名为准）
-5. 解密口令：保存在本机 macOS 钥匙串的
+4. 加密运行数据：服务器
+   `/opt/pentagi-recovery-backups/pentagi-recovery-20261011-0545.tar.enc`
+5. 外层校验文件：同目录下的
+   `pentagi-recovery-20261011-0545.tar.enc.sha256`
+6. 解密口令：保存在管理电脑 macOS 钥匙串的
    `PentAGI Recovery 2026-10-11` 项目中
 
 加密包内包含数据库、Docker 卷、`/opt/pentagi/.env`、服务配置和
@@ -29,7 +31,7 @@
 ## 新服务器准备
 
 建议使用 Ubuntu 24.04、Docker Engine 及 Compose v2，并准备至少 100 GB
-磁盘空间。安装 `age`/OpenSSL、`zstd`、PostgreSQL 客户端和 `jq`。
+磁盘空间。安装 OpenSSL 3、`zstd`、PostgreSQL 客户端和 `jq`。
 
 登录 GitHub Container Registry：
 
@@ -43,19 +45,32 @@ printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u EOSRichClub --password-stdin
 
 ## 解密与校验
 
-从 macOS 钥匙串读取口令时，不要把口令打印到终端。以实际备份旁的
-`SHA256SUMS`、`MANIFEST.json` 和 `RESTORE.md` 为准。先校验加密文件的
-SHA-256，再解密到权限为 `0700` 的临时目录。
+外层采用 AES-256-CBC、PBKDF2-HMAC-SHA-256、600000 次迭代加密。从 macOS
+钥匙串读取口令时，不要把口令打印到终端。先用旁边的 `.sha256` 文件校验
+密文，再解密到权限为 `0700` 的临时目录。解密示例：
+
+```bash
+export PENTAGI_BACKUP_PASSPHRASE="$(security find-generic-password \
+  -a "$(id -un)" -s 'PentAGI Recovery 2026-10-11' -w)"
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -md sha256 \
+  -pass env:PENTAGI_BACKUP_PASSPHRASE \
+  -in pentagi-recovery-20261011-0545.tar.enc | tar -xpf -
+unset PENTAGI_BACKUP_PASSPHRASE
+```
+
+解密后先执行内部 `SHA256SUMS` 校验，再按 `MANIFEST.json` 和本文恢复。
 
 解密后应看到：
 
-- `database/pentagidb.dump`：PostgreSQL 自定义格式逻辑备份
-- `database/globals.sql`：数据库角色/全局对象
-- `volumes/`：所有 `pentagi_*` 与 `pentagi-terminal-*` 卷
-- `host/opt/pentagi/`：运行目录（包含未脱敏的 `.env`）
-- `host/etc/`、`host/usr/local/`：PentAGI 专用 systemd、Nginx 和脚本
-- `runtime/`：容器、网络、卷和镜像检查信息
-- `RESTORE.md`：该备份实例的精确恢复步骤
+- `pentagi-recovery-20261011-0545/database/pentagidb.dump`：PostgreSQL
+  自定义格式逻辑备份
+- `pentagi-recovery-20261011-0545/database/globals.sql`：数据库角色/全局对象
+- `pentagi-recovery-20261011-0545/volumes/`：所有 `pentagi_*` 与
+  `pentagi-terminal-*` 卷的独立 `.tar.zst`
+- `pentagi-recovery-20261011-0545/host/host-config.tar.zst`：运行目录
+  （包含未脱敏的 `.env`）、PentAGI 专用 systemd、Nginx、网络出口配置和脚本
+- `pentagi-recovery-20261011-0545/runtime/`：容器、网络、卷和镜像检查信息
+- `pentagi-recovery-20261011-0545/RECOVERY.md`：本恢复手册副本
 
 ## 推荐恢复顺序
 

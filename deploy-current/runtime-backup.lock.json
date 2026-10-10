@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-10-11T05:45:00+08:00",
+  "sourceServer": {
+    "cloud": "aliyun",
+    "region": "cn-heyuan",
+    "instanceId": "i-f8z64hmn7t1g302fposu"
+  },
+  "ciphertext": {
+    "serverPath": "/opt/pentagi-recovery-backups/pentagi-recovery-20261011-0545.tar.enc",
+    "sizeBytes": 2529157152,
+    "sha256": "7a16e425e858c5174b6a669d90f42a4136503e9414d52c0600aa0b1790b1ec9f"
+  },
+  "encryption": {
+    "tool": "openssl enc",
+    "cipher": "aes-256-cbc",
+    "kdf": "pbkdf2-hmac-sha256",
+    "iterations": 600000,
+    "salted": true,
+    "keyLocation": "macOS Keychain: PentAGI Recovery 2026-10-11"
+  },
+  "validation": {
+    "ciphertextSha256": "passed",
+    "fullDecryptAndTarRead": "passed",
+    "plaintextStagingRemoved": true
+  }
+}

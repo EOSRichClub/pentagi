@@ -682,6 +682,31 @@ func TestWorkerDockerEnvStripsInsideSegment(t *testing.T) {
 	}
 }
 
+func TestWorkerProxyEnv(t *testing.T) {
+	t.Run("empty proxy is disabled", func(t *testing.T) {
+		if got := (&Config{}).WorkerProxyEnv(); got != nil {
+			t.Fatalf("WorkerProxyEnv() = %v, want nil", got)
+		}
+	})
+
+	t.Run("standard upper and lower case variables", func(t *testing.T) {
+		got := (&Config{WorkerProxyURL: "  http://172.29.0.1:7890  "}).WorkerProxyEnv()
+		want := []string{
+			"HTTP_PROXY=http://172.29.0.1:7890",
+			"HTTPS_PROXY=http://172.29.0.1:7890",
+			"ALL_PROXY=http://172.29.0.1:7890",
+			"NO_PROXY=localhost,127.0.0.1,::1",
+			"http_proxy=http://172.29.0.1:7890",
+			"https_proxy=http://172.29.0.1:7890",
+			"all_proxy=http://172.29.0.1:7890",
+			"no_proxy=localhost,127.0.0.1,::1",
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("WorkerProxyEnv() = %v, want %v", got, want)
+		}
+	})
+}
+
 // TestWorkerDockerSocket covers the socket-selection rule, which is the part
 // with security consequences: autodetection of the host socket must stop as soon
 // as a dedicated daemon endpoint is designated for sandboxes.
@@ -758,6 +783,9 @@ func TestWorkerDockerHelpersNilSafe(t *testing.T) {
 
 	if env := c.WorkerDockerEnv(); env != nil {
 		t.Errorf("WorkerDockerEnv() = %v, want nil", env)
+	}
+	if env := c.WorkerProxyEnv(); env != nil {
+		t.Errorf("WorkerProxyEnv() = %v, want nil", env)
 	}
 	if p := c.WorkerDockerCertPath(); p != "" {
 		t.Errorf("WorkerDockerCertPath() = %q, want \"\"", p)

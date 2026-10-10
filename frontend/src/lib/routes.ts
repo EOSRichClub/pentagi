@@ -37,8 +37,14 @@ export const routes = {
     settings: {
         account: '/settings/account',
         apiTokens: '/settings/api-tokens',
-        newProvider: ({ id, type }: { id?: string; type?: string } = {}) =>
-            withQuery('/settings/providers/new', { id, type }),
+        modelApiKeys: '/settings/model-api-keys',
+        newProvider: ({
+            credentialId,
+            id,
+            serviceId,
+            type,
+        }: { credentialId?: string; id?: string; serviceId?: string; type?: string } = {}) =>
+            withQuery('/settings/providers/new', { credentialId, id, serviceId, type }),
         prompt: (name: string) => `/settings/prompts/${name}`,
         prompts: '/settings/prompts',
         provider: (id: string) => `/settings/providers/${id}`,

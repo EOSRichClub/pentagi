@@ -1,0 +1,27 @@
+[Unit]
+Description=PentAGI model API key manager
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/pentagi
+Environment=PENTAGI_DIR=/opt/pentagi
+Environment=PENTAGI_ENV_FILE=/opt/pentagi/.env
+Environment=PENTAGI_COMPOSE_FILE=/opt/pentagi/docker-compose.yml
+Environment=PENTAGI_ALLOWED_ORIGIN=https://pentagi.pzcmtech.com
+Environment=PENTAGI_INFO_URL=https://127.0.0.1:8443/api/v1/info
+ExecStart=/usr/bin/python3 /opt/pentagi/key-manager/pentagi_key_manager.py
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/opt/pentagi /run/docker.sock
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

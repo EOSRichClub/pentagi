@@ -126,19 +126,21 @@ type ComplexityRoot struct {
 	}
 
 	AgentsConfig struct {
-		Adviser      func(childComplexity int) int
-		Assistant    func(childComplexity int) int
-		Coder        func(childComplexity int) int
-		Enricher     func(childComplexity int) int
-		Generator    func(childComplexity int) int
-		Installer    func(childComplexity int) int
-		Pentester    func(childComplexity int) int
-		PrimaryAgent func(childComplexity int) int
-		Refiner      func(childComplexity int) int
-		Reflector    func(childComplexity int) int
-		Searcher     func(childComplexity int) int
-		Simple       func(childComplexity int) int
-		SimpleJSON   func(childComplexity int) int
+		Adviser           func(childComplexity int) int
+		Assistant         func(childComplexity int) int
+		Coder             func(childComplexity int) int
+		Enricher          func(childComplexity int) int
+		Generator         func(childComplexity int) int
+		Installer         func(childComplexity int) int
+		ModelCredentialID func(childComplexity int) int
+		ModelServiceID    func(childComplexity int) int
+		Pentester         func(childComplexity int) int
+		PrimaryAgent      func(childComplexity int) int
+		Refiner           func(childComplexity int) int
+		Reflector         func(childComplexity int) int
+		Searcher          func(childComplexity int) int
+		Simple            func(childComplexity int) int
+		SimpleJSON        func(childComplexity int) int
 	}
 
 	AgentsPrompts struct {
@@ -160,14 +162,15 @@ type ComplexityRoot struct {
 	}
 
 	Assistant struct {
-		CreatedAt func(childComplexity int) int
-		FlowID    func(childComplexity int) int
-		ID        func(childComplexity int) int
-		Provider  func(childComplexity int) int
-		Status    func(childComplexity int) int
-		Title     func(childComplexity int) int
-		UpdatedAt func(childComplexity int) int
-		UseAgents func(childComplexity int) int
+		CreatedAt          func(childComplexity int) int
+		FlowControlEnabled func(childComplexity int) int
+		FlowID             func(childComplexity int) int
+		ID                 func(childComplexity int) int
+		Provider           func(childComplexity int) int
+		Status             func(childComplexity int) int
+		Title              func(childComplexity int) int
+		UpdatedAt          func(childComplexity int) int
+		UseAgents          func(childComplexity int) int
 	}
 
 	AssistantLog struct {
@@ -362,9 +365,9 @@ type ComplexityRoot struct {
 	Mutation struct {
 		AddFavoriteFlow         func(childComplexity int, flowID int64) int
 		AnonymizeText           func(childComplexity int, text string) int
-		CallAssistant           func(childComplexity int, flowID int64, assistantID int64, input string, useAgents bool, resourceIds []int64) int
+		CallAssistant           func(childComplexity int, flowID int64, assistantID int64, input string, useAgents bool, flowControlEnabled bool, resourceIds []int64) int
 		CreateAPIToken          func(childComplexity int, input model.CreateAPITokenInput) int
-		CreateAssistant         func(childComplexity int, flowID int64, modelProvider string, input string, useAgents bool, resourceIds []int64) int
+		CreateAssistant         func(childComplexity int, flowID int64, modelProvider string, input string, useAgents bool, flowControlEnabled bool, resourceIds []int64) int
 		CreateFlow              func(childComplexity int, modelProvider string, input string, resourceIds []int64) int
 		CreateFlowTemplate      func(childComplexity int, input model.CreateFlowTemplateInput) int
 		CreateKnowledgeDocument func(childComplexity int, input model.CreateKnowledgeDocumentInput) int
@@ -384,7 +387,7 @@ type ComplexityRoot struct {
 		RenameKnowledgeDocument func(childComplexity int, id string, question string) int
 		StopAssistant           func(childComplexity int, flowID int64, assistantID int64) int
 		StopFlow                func(childComplexity int, flowID int64) int
-		TestAgent               func(childComplexity int, typeArg model.ProviderType, agentType model.AgentConfigType, agent model.AgentConfig) int
+		TestAgent               func(childComplexity int, typeArg model.ProviderType, agentType model.AgentConfigType, agent model.AgentConfig, modelServiceID *int64, modelCredentialID *int64) int
 		TestProvider            func(childComplexity int, typeArg model.ProviderType, agents model.AgentsConfig) int
 		UpdateAPIToken          func(childComplexity int, tokenID string, input model.UpdateAPITokenInput) int
 		UpdateFlowTemplate      func(childComplexity int, templateID int64, input model.UpdateFlowTemplateInput) int
@@ -760,11 +763,11 @@ type MutationResolver interface {
 	FinishFlow(ctx context.Context, flowID int64) (model.ResultType, error)
 	DeleteFlow(ctx context.Context, flowID int64) (model.ResultType, error)
 	RenameFlow(ctx context.Context, flowID int64, title string) (model.ResultType, error)
-	CreateAssistant(ctx context.Context, flowID int64, modelProvider string, input string, useAgents bool, resourceIds []int64) (*model.FlowAssistant, error)
-	CallAssistant(ctx context.Context, flowID int64, assistantID int64, input string, useAgents bool, resourceIds []int64) (model.ResultType, error)
+	CreateAssistant(ctx context.Context, flowID int64, modelProvider string, input string, useAgents bool, flowControlEnabled bool, resourceIds []int64) (*model.FlowAssistant, error)
+	CallAssistant(ctx context.Context, flowID int64, assistantID int64, input string, useAgents bool, flowControlEnabled bool, resourceIds []int64) (model.ResultType, error)
 	StopAssistant(ctx context.Context, flowID int64, assistantID int64) (*model.Assistant, error)
 	DeleteAssistant(ctx context.Context, flowID int64, assistantID int64) (model.ResultType, error)
-	TestAgent(ctx context.Context, typeArg model.ProviderType, agentType model.AgentConfigType, agent model.AgentConfig) (*model.AgentTestResult, error)
+	TestAgent(ctx context.Context, typeArg model.ProviderType, agentType model.AgentConfigType, agent model.AgentConfig, modelServiceID *int64, modelCredentialID *int64) (*model.AgentTestResult, error)
 	TestProvider(ctx context.Context, typeArg model.ProviderType, agents model.AgentsConfig) (*model.ProviderTestResult, error)
 	CreateProvider(ctx context.Context, name string, typeArg model.ProviderType, agents model.AgentsConfig) (*model.ProviderConfig, error)
 	UpdateProvider(ctx context.Context, providerID int64, name string, agents model.AgentsConfig) (*model.ProviderConfig, error)
@@ -1291,6 +1294,20 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.AgentsConfig.Installer(childComplexity), true
 
+	case "AgentsConfig.modelCredentialId":
+		if e.complexity.AgentsConfig.ModelCredentialID == nil {
+			break
+		}
+
+		return e.complexity.AgentsConfig.ModelCredentialID(childComplexity), true
+
+	case "AgentsConfig.modelServiceId":
+		if e.complexity.AgentsConfig.ModelServiceID == nil {
+			break
+		}
+
+		return e.complexity.AgentsConfig.ModelServiceID(childComplexity), true
+
 	case "AgentsConfig.pentester":
 		if e.complexity.AgentsConfig.Pentester == nil {
 			break
@@ -1451,6 +1468,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.Assistant.CreatedAt(childComplexity), true
+
+	case "Assistant.flowControlEnabled":
+		if e.complexity.Assistant.FlowControlEnabled == nil {
+			break
+		}
+
+		return e.complexity.Assistant.FlowControlEnabled(childComplexity), true
 
 	case "Assistant.flowId":
 		if e.complexity.Assistant.FlowID == nil {
@@ -2375,7 +2399,7 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 			return 0, false
 		}
 
-		return e.complexity.Mutation.CallAssistant(childComplexity, args["flowId"].(int64), args["assistantId"].(int64), args["input"].(string), args["useAgents"].(bool), args["resourceIds"].([]int64)), true
+		return e.complexity.Mutation.CallAssistant(childComplexity, args["flowId"].(int64), args["assistantId"].(int64), args["input"].(string), args["useAgents"].(bool), args["flowControlEnabled"].(bool), args["resourceIds"].([]int64)), true
 
 	case "Mutation.createAPIToken":
 		if e.complexity.Mutation.CreateAPIToken == nil {
@@ -2399,7 +2423,7 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 			return 0, false
 		}
 
-		return e.complexity.Mutation.CreateAssistant(childComplexity, args["flowId"].(int64), args["modelProvider"].(string), args["input"].(string), args["useAgents"].(bool), args["resourceIds"].([]int64)), true
+		return e.complexity.Mutation.CreateAssistant(childComplexity, args["flowId"].(int64), args["modelProvider"].(string), args["input"].(string), args["useAgents"].(bool), args["flowControlEnabled"].(bool), args["resourceIds"].([]int64)), true
 
 	case "Mutation.createFlow":
 		if e.complexity.Mutation.CreateFlow == nil {
@@ -2639,7 +2663,7 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 			return 0, false
 		}
 
-		return e.complexity.Mutation.TestAgent(childComplexity, args["type"].(model.ProviderType), args["agentType"].(model.AgentConfigType), args["agent"].(model.AgentConfig)), true
+		return e.complexity.Mutation.TestAgent(childComplexity, args["type"].(model.ProviderType), args["agentType"].(model.AgentConfigType), args["agent"].(model.AgentConfig), args["modelServiceId"].(*int64), args["modelCredentialId"].(*int64)), true
 
 	case "Mutation.testProvider":
 		if e.complexity.Mutation.TestProvider == nil {
@@ -5075,11 +5099,16 @@ func (ec *executionContext) field_Mutation_callAssistant_args(ctx context.Contex
 		return nil, err
 	}
 	args["useAgents"] = arg3
-	arg4, err := ec.field_Mutation_callAssistant_argsResourceIds(ctx, rawArgs)
+	arg4, err := ec.field_Mutation_callAssistant_argsFlowControlEnabled(ctx, rawArgs)
 	if err != nil {
 		return nil, err
 	}
-	args["resourceIds"] = arg4
+	args["flowControlEnabled"] = arg4
+	arg5, err := ec.field_Mutation_callAssistant_argsResourceIds(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["resourceIds"] = arg5
 	return args, nil
 }
 func (ec *executionContext) field_Mutation_callAssistant_argsFlowID(
@@ -5170,6 +5199,28 @@ func (ec *executionContext) field_Mutation_callAssistant_argsUseAgents(
 	return zeroVal, nil
 }
 
+func (ec *executionContext) field_Mutation_callAssistant_argsFlowControlEnabled(
+	ctx context.Context,
+	rawArgs map[string]interface{},
+) (bool, error) {
+	// We won't call the directive if the argument is null.
+	// Set call_argument_directives_with_null to true to call directives
+	// even if the argument is null.
+	_, ok := rawArgs["flowControlEnabled"]
+	if !ok {
+		var zeroVal bool
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("flowControlEnabled"))
+	if tmp, ok := rawArgs["flowControlEnabled"]; ok {
+		return ec.unmarshalNBoolean2bool(ctx, tmp)
+	}
+
+	var zeroVal bool
+	return zeroVal, nil
+}
+
 func (ec *executionContext) field_Mutation_callAssistant_argsResourceIds(
 	ctx context.Context,
 	rawArgs map[string]interface{},
@@ -5247,11 +5298,16 @@ func (ec *executionContext) field_Mutation_createAssistant_args(ctx context.Cont
 		return nil, err
 	}
 	args["useAgents"] = arg3
-	arg4, err := ec.field_Mutation_createAssistant_argsResourceIds(ctx, rawArgs)
+	arg4, err := ec.field_Mutation_createAssistant_argsFlowControlEnabled(ctx, rawArgs)
 	if err != nil {
 		return nil, err
 	}
-	args["resourceIds"] = arg4
+	args["flowControlEnabled"] = arg4
+	arg5, err := ec.field_Mutation_createAssistant_argsResourceIds(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["resourceIds"] = arg5
 	return args, nil
 }
 func (ec *executionContext) field_Mutation_createAssistant_argsFlowID(
@@ -5335,6 +5391,28 @@ func (ec *executionContext) field_Mutation_createAssistant_argsUseAgents(
 
 	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("useAgents"))
 	if tmp, ok := rawArgs["useAgents"]; ok {
+		return ec.unmarshalNBoolean2bool(ctx, tmp)
+	}
+
+	var zeroVal bool
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Mutation_createAssistant_argsFlowControlEnabled(
+	ctx context.Context,
+	rawArgs map[string]interface{},
+) (bool, error) {
+	// We won't call the directive if the argument is null.
+	// Set call_argument_directives_with_null to true to call directives
+	// even if the argument is null.
+	_, ok := rawArgs["flowControlEnabled"]
+	if !ok {
+		var zeroVal bool
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("flowControlEnabled"))
+	if tmp, ok := rawArgs["flowControlEnabled"]; ok {
 		return ec.unmarshalNBoolean2bool(ctx, tmp)
 	}
 
@@ -6314,6 +6392,16 @@ func (ec *executionContext) field_Mutation_testAgent_args(ctx context.Context, r
 		return nil, err
 	}
 	args["agent"] = arg2
+	arg3, err := ec.field_Mutation_testAgent_argsModelServiceID(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["modelServiceId"] = arg3
+	arg4, err := ec.field_Mutation_testAgent_argsModelCredentialID(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["modelCredentialId"] = arg4
 	return args, nil
 }
 func (ec *executionContext) field_Mutation_testAgent_argsType(
@@ -6379,6 +6467,50 @@ func (ec *executionContext) field_Mutation_testAgent_argsAgent(
 	}
 
 	var zeroVal model.AgentConfig
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Mutation_testAgent_argsModelServiceID(
+	ctx context.Context,
+	rawArgs map[string]interface{},
+) (*int64, error) {
+	// We won't call the directive if the argument is null.
+	// Set call_argument_directives_with_null to true to call directives
+	// even if the argument is null.
+	_, ok := rawArgs["modelServiceId"]
+	if !ok {
+		var zeroVal *int64
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("modelServiceId"))
+	if tmp, ok := rawArgs["modelServiceId"]; ok {
+		return ec.unmarshalOID2ᚖint64(ctx, tmp)
+	}
+
+	var zeroVal *int64
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Mutation_testAgent_argsModelCredentialID(
+	ctx context.Context,
+	rawArgs map[string]interface{},
+) (*int64, error) {
+	// We won't call the directive if the argument is null.
+	// Set call_argument_directives_with_null to true to call directives
+	// even if the argument is null.
+	_, ok := rawArgs["modelCredentialId"]
+	if !ok {
+		var zeroVal *int64
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("modelCredentialId"))
+	if tmp, ok := rawArgs["modelCredentialId"]; ok {
+		return ec.unmarshalOID2ᚖint64(ctx, tmp)
+	}
+
+	var zeroVal *int64
 	return zeroVal, nil
 }
 
@@ -10821,6 +10953,88 @@ func (ec *executionContext) fieldContext_AgentTypeUsageStats_stats(_ context.Con
 	return fc, nil
 }
 
+func (ec *executionContext) _AgentsConfig_modelServiceId(ctx context.Context, field graphql.CollectedField, obj *model.AgentsConfig) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_AgentsConfig_modelServiceId(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.ModelServiceID, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*int64)
+	fc.Result = res
+	return ec.marshalOID2ᚖint64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_AgentsConfig_modelServiceId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "AgentsConfig",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _AgentsConfig_modelCredentialId(ctx context.Context, field graphql.CollectedField, obj *model.AgentsConfig) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_AgentsConfig_modelCredentialId(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.ModelCredentialID, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*int64)
+	fc.Result = res
+	return ec.marshalOID2ᚖint64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_AgentsConfig_modelCredentialId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "AgentsConfig",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _AgentsConfig_simple(ctx context.Context, field graphql.CollectedField, obj *model.AgentsConfig) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_AgentsConfig_simple(ctx, field)
 	if err != nil {
@@ -12863,6 +13077,50 @@ func (ec *executionContext) _Assistant_useAgents(ctx context.Context, field grap
 }
 
 func (ec *executionContext) fieldContext_Assistant_useAgents(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Assistant",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Assistant_flowControlEnabled(ctx context.Context, field graphql.CollectedField, obj *model.Assistant) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Assistant_flowControlEnabled(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.FlowControlEnabled, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Assistant_flowControlEnabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Assistant",
 		Field:      field,
@@ -15019,6 +15277,8 @@ func (ec *executionContext) fieldContext_FlowAssistant_assistant(_ context.Conte
 				return ec.fieldContext_Assistant_flowId(ctx, field)
 			case "useAgents":
 				return ec.fieldContext_Assistant_useAgents(ctx, field)
+			case "flowControlEnabled":
+				return ec.fieldContext_Assistant_flowControlEnabled(ctx, field)
 			case "createdAt":
 				return ec.fieldContext_Assistant_createdAt(ctx, field)
 			case "updatedAt":
@@ -18900,7 +19160,7 @@ func (ec *executionContext) _Mutation_createAssistant(ctx context.Context, field
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Mutation().CreateAssistant(rctx, fc.Args["flowId"].(int64), fc.Args["modelProvider"].(string), fc.Args["input"].(string), fc.Args["useAgents"].(bool), fc.Args["resourceIds"].([]int64))
+		return ec.resolvers.Mutation().CreateAssistant(rctx, fc.Args["flowId"].(int64), fc.Args["modelProvider"].(string), fc.Args["input"].(string), fc.Args["useAgents"].(bool), fc.Args["flowControlEnabled"].(bool), fc.Args["resourceIds"].([]int64))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -18961,7 +19221,7 @@ func (ec *executionContext) _Mutation_callAssistant(ctx context.Context, field g
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Mutation().CallAssistant(rctx, fc.Args["flowId"].(int64), fc.Args["assistantId"].(int64), fc.Args["input"].(string), fc.Args["useAgents"].(bool), fc.Args["resourceIds"].([]int64))
+		return ec.resolvers.Mutation().CallAssistant(rctx, fc.Args["flowId"].(int64), fc.Args["assistantId"].(int64), fc.Args["input"].(string), fc.Args["useAgents"].(bool), fc.Args["flowControlEnabled"].(bool), fc.Args["resourceIds"].([]int64))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -19053,6 +19313,8 @@ func (ec *executionContext) fieldContext_Mutation_stopAssistant(ctx context.Cont
 				return ec.fieldContext_Assistant_flowId(ctx, field)
 			case "useAgents":
 				return ec.fieldContext_Assistant_useAgents(ctx, field)
+			case "flowControlEnabled":
+				return ec.fieldContext_Assistant_flowControlEnabled(ctx, field)
 			case "createdAt":
 				return ec.fieldContext_Assistant_createdAt(ctx, field)
 			case "updatedAt":
@@ -19144,7 +19406,7 @@ func (ec *executionContext) _Mutation_testAgent(ctx context.Context, field graph
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Mutation().TestAgent(rctx, fc.Args["type"].(model.ProviderType), fc.Args["agentType"].(model.AgentConfigType), fc.Args["agent"].(model.AgentConfig))
+		return ec.resolvers.Mutation().TestAgent(rctx, fc.Args["type"].(model.ProviderType), fc.Args["agentType"].(model.AgentConfigType), fc.Args["agent"].(model.AgentConfig), fc.Args["modelServiceId"].(*int64), fc.Args["modelCredentialId"].(*int64))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -21172,6 +21434,10 @@ func (ec *executionContext) fieldContext_ProviderConfig_agents(_ context.Context
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
+			case "modelServiceId":
+				return ec.fieldContext_AgentsConfig_modelServiceId(ctx, field)
+			case "modelCredentialId":
+				return ec.fieldContext_AgentsConfig_modelCredentialId(ctx, field)
 			case "simple":
 				return ec.fieldContext_AgentsConfig_simple(ctx, field)
 			case "simpleJson":
@@ -23474,6 +23740,8 @@ func (ec *executionContext) fieldContext_Query_assistants(ctx context.Context, f
 				return ec.fieldContext_Assistant_flowId(ctx, field)
 			case "useAgents":
 				return ec.fieldContext_Assistant_useAgents(ctx, field)
+			case "flowControlEnabled":
+				return ec.fieldContext_Assistant_flowControlEnabled(ctx, field)
 			case "createdAt":
 				return ec.fieldContext_Assistant_createdAt(ctx, field)
 			case "updatedAt":
@@ -27856,6 +28124,8 @@ func (ec *executionContext) fieldContext_Subscription_assistantCreated(ctx conte
 				return ec.fieldContext_Assistant_flowId(ctx, field)
 			case "useAgents":
 				return ec.fieldContext_Assistant_useAgents(ctx, field)
+			case "flowControlEnabled":
+				return ec.fieldContext_Assistant_flowControlEnabled(ctx, field)
 			case "createdAt":
 				return ec.fieldContext_Assistant_createdAt(ctx, field)
 			case "updatedAt":
@@ -27943,6 +28213,8 @@ func (ec *executionContext) fieldContext_Subscription_assistantUpdated(ctx conte
 				return ec.fieldContext_Assistant_flowId(ctx, field)
 			case "useAgents":
 				return ec.fieldContext_Assistant_useAgents(ctx, field)
+			case "flowControlEnabled":
+				return ec.fieldContext_Assistant_flowControlEnabled(ctx, field)
 			case "createdAt":
 				return ec.fieldContext_Assistant_createdAt(ctx, field)
 			case "updatedAt":
@@ -28030,6 +28302,8 @@ func (ec *executionContext) fieldContext_Subscription_assistantDeleted(ctx conte
 				return ec.fieldContext_Assistant_flowId(ctx, field)
 			case "useAgents":
 				return ec.fieldContext_Assistant_useAgents(ctx, field)
+			case "flowControlEnabled":
+				return ec.fieldContext_Assistant_flowControlEnabled(ctx, field)
 			case "createdAt":
 				return ec.fieldContext_Assistant_createdAt(ctx, field)
 			case "updatedAt":
@@ -37164,13 +37438,27 @@ func (ec *executionContext) unmarshalInputAgentsConfigInput(ctx context.Context,
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"simple", "simpleJson", "primaryAgent", "assistant", "generator", "refiner", "adviser", "reflector", "searcher", "enricher", "coder", "installer", "pentester"}
+	fieldsInOrder := [...]string{"modelServiceId", "modelCredentialId", "simple", "simpleJson", "primaryAgent", "assistant", "generator", "refiner", "adviser", "reflector", "searcher", "enricher", "coder", "installer", "pentester"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
 			continue
 		}
 		switch k {
+		case "modelServiceId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("modelServiceId"))
+			data, err := ec.unmarshalOID2ᚖint64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ModelServiceID = data
+		case "modelCredentialId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("modelCredentialId"))
+			data, err := ec.unmarshalOID2ᚖint64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ModelCredentialID = data
 		case "simple":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("simple"))
 			data, err := ec.unmarshalNAgentConfigInput2ᚖpentagiᚋpkgᚋgraphᚋmodelᚐAgentConfig(ctx, v)
@@ -38179,6 +38467,10 @@ func (ec *executionContext) _AgentsConfig(ctx context.Context, sel ast.Selection
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("AgentsConfig")
+		case "modelServiceId":
+			out.Values[i] = ec._AgentsConfig_modelServiceId(ctx, field, obj)
+		case "modelCredentialId":
+			out.Values[i] = ec._AgentsConfig_modelCredentialId(ctx, field, obj)
 		case "simple":
 			out.Values[i] = ec._AgentsConfig_simple(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -38414,6 +38706,11 @@ func (ec *executionContext) _Assistant(ctx context.Context, sel ast.SelectionSet
 			}
 		case "useAgents":
 			out.Values[i] = ec._Assistant_useAgents(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "flowControlEnabled":
+			out.Values[i] = ec._Assistant_flowControlEnabled(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

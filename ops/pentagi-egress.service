@@ -1,0 +1,13 @@
+[Unit]
+Description=PentAGI task egress network and proxy kill switch
+After=docker.service mihomo.service
+Requires=docker.service mihomo.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/pentagi-egress-firewall
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

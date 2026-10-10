@@ -57,6 +57,7 @@ export const routeTitles = {
     },
     knowledges: { title: 'Knowledges' },
     login: { title: 'Login' },
+    modelApiKeys: { title: 'Model API Keys' },
     newFlow: { title: 'New flow' },
     oauth: { title: 'OAuth' },
     prompt: {

@@ -41,11 +41,16 @@ SELECT use_agents
 FROM assistants
 WHERE id = $1 AND deleted_at IS NULL;
 
+-- name: GetAssistantFlowControlEnabled :one
+SELECT flow_control_enabled
+FROM assistants
+WHERE id = $1 AND deleted_at IS NULL;
+
 -- name: CreateAssistant :one
 INSERT INTO assistants (
-  title, status, model, model_provider_name, model_provider_type, language, tool_call_id_template, functions, flow_id, use_agents
+  title, status, model, model_provider_name, model_provider_type, language, tool_call_id_template, functions, flow_id, use_agents, flow_control_enabled
 ) VALUES (
-  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
 )
 RETURNING *;
 
@@ -58,6 +63,12 @@ RETURNING *;
 -- name: UpdateAssistantUseAgents :one
 UPDATE assistants
 SET use_agents = $1
+WHERE id = $2
+RETURNING *;
+
+-- name: UpdateAssistantFlowControlEnabled :one
+UPDATE assistants
+SET flow_control_enabled = $1
 WHERE id = $2
 RETURNING *;
 
@@ -105,7 +116,7 @@ WHERE a.flow_id = f.id
   AND a.model_provider_name = sqlc.arg(old_name)
   AND a.deleted_at IS NULL
   AND f.deleted_at IS NULL
-RETURNING a.id, a.status, a.title, a.model, a.model_provider_name, a.language, a.functions, a.trace_id, a.flow_id, a.use_agents, a.msgchain_id, a.created_at, a.updated_at, a.deleted_at, a.model_provider_type, a.tool_call_id_template;
+RETURNING a.id, a.status, a.title, a.model, a.model_provider_name, a.language, a.functions, a.trace_id, a.flow_id, a.use_agents, a.msgchain_id, a.created_at, a.updated_at, a.deleted_at, a.model_provider_type, a.tool_call_id_template, a.flow_control_enabled;
 
 -- name: DeleteAssistant :one
 UPDATE assistants

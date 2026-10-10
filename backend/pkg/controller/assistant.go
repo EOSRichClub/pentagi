@@ -31,7 +31,7 @@ type AssistantWorker interface {
 	GetTitle() string
 	GetStatus(ctx context.Context) (database.AssistantStatus, error)
 	SetStatus(ctx context.Context, status database.AssistantStatus) error
-	PutInput(ctx context.Context, input string, useAgents bool, resources []database.UserResource) error
+	PutInput(ctx context.Context, input string, useAgents, flowControlEnabled bool, resources []database.UserResource) error
 	Finish(ctx context.Context) error
 	Stop(ctx context.Context) error
 }
@@ -57,15 +57,16 @@ type assistantWorker struct {
 }
 
 type newAssistantWorkerCtx struct {
-	userID    int64
-	flowID    int64
-	input     string
-	useAgents bool
-	prvname   provider.ProviderName
-	prvtype   provider.ProviderType
-	functions *tools.Functions
-	resources []database.UserResource
-	fw        FlowWorker
+	userID             int64
+	flowID             int64
+	input              string
+	useAgents          bool
+	flowControlEnabled bool
+	prvname            provider.ProviderName
+	prvtype            provider.ProviderType
+	functions          *tools.Functions
+	resources          []database.UserResource
+	fw                 FlowWorker
 
 	flowWorkerCtx
 }
@@ -87,12 +88,13 @@ type assistantWorkerCtx struct {
 const assistantInputTimeout = 2 * time.Second
 
 type assistantInput struct {
-	input     string
-	useAgents bool
-	done      chan error
+	input              string
+	useAgents          bool
+	flowControlEnabled bool
+	done               chan error
 }
 
-func NewAssistantWorker(ctx context.Context, awc newAssistantWorkerCtx) (AssistantWorker, error) {
+func NewAssistantWorker(ctx context.Context, awc newAssistantWorkerCtx) (_ AssistantWorker, err error) {
 	ctx, span := obs.Observer.NewSpan(ctx, obs.SpanKindInternal, "controller.NewAssistantWorker")
 	defer span.End()
 
@@ -126,6 +128,7 @@ func NewAssistantWorker(ctx context.Context, awc newAssistantWorkerCtx) (Assista
 		Functions:          []byte("{}"),
 		FlowID:             awc.flowID,
 		UseAgents:          awc.useAgents,
+		FlowControlEnabled: awc.flowControlEnabled,
 	})
 	if err != nil {
 		logger.WithError(err).Error("failed to create assistant in DB")
@@ -134,6 +137,22 @@ func NewAssistantWorker(ctx context.Context, awc newAssistantWorkerCtx) (Assista
 
 	logger = logger.WithField("assistant_id", assistant.ID)
 	logger.Info("assistant created in DB")
+
+	// Keep the stable ID separately because assistant is reassigned by
+	// UpdateAssistant, whose zero-valued error result must never redirect the
+	// cleanup to id 0. A failed create mutation must not leave a visible,
+	// permanently "created" conversation behind.
+	assistantID := assistant.ID
+	cleanupAssistant := true
+	defer func() {
+		if err == nil || !cleanupAssistant {
+			return
+		}
+
+		if _, cleanupErr := awc.db.DeleteAssistant(context.WithoutCancel(ctx), assistantID); cleanupErr != nil {
+			logger.WithError(cleanupErr).Error("failed to drop the assistant left behind by a failed start")
+		}
+	}()
 
 	ctx, observation := obs.Observer.NewObservation(ctx,
 		langfuse.WithObservationTraceContext(
@@ -258,10 +277,13 @@ func NewAssistantWorker(ctx context.Context, awc newAssistantWorkerCtx) (Assista
 
 	pub.AssistantCreated(ctx, assistant)
 
+	// From this point onward the worker owns the assistant lifecycle.
+	cleanupAssistant = false
+
 	aw.wg.Add(1)
 	go aw.worker()
 
-	if err := aw.PutInput(ctx, awc.input, awc.useAgents, awc.resources); err != nil {
+	if err := aw.PutInput(ctx, awc.input, awc.useAgents, awc.flowControlEnabled, awc.resources); err != nil {
 		return nil, wrapErrorEndSpan(ctx, assistantSpan, "failed to run assistant worker", err)
 	}
 
@@ -433,7 +455,7 @@ func LoadAssistantWorker(
 func (aw *assistantWorker) worker() {
 	defer aw.wg.Done()
 
-	perform := func(ctx context.Context, input string, useAgents bool) error {
+	perform := func(ctx context.Context, input string, useAgents, flowControlEnabled bool) error {
 		aw.runWG.Add(1)
 		defer aw.runWG.Done()
 
@@ -443,6 +465,14 @@ func (aw *assistantWorker) worker() {
 		})
 		if err != nil {
 			return fmt.Errorf("failed to update assistant use agents: %w", err)
+		}
+
+		_, err = aw.db.UpdateAssistantFlowControlEnabled(ctx, database.UpdateAssistantFlowControlEnabledParams{
+			FlowControlEnabled: flowControlEnabled,
+			ID:                 aw.id,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to update assistant flow control setting: %w", err)
 		}
 
 		if err := aw.SetStatus(ctx, database.AssistantStatusRunning); err != nil {
@@ -487,7 +517,7 @@ func (aw *assistantWorker) worker() {
 		case <-aw.ctx.Done():
 			return
 		case ain := <-aw.input:
-			err := perform(aw.ctx, ain.input, ain.useAgents)
+			err := perform(aw.ctx, ain.input, ain.useAgents, ain.flowControlEnabled)
 			if err != nil {
 				obs.LogErrorOrCancel(aw.logger, err, "failed to perform assistant chain")
 			}
@@ -535,7 +565,12 @@ func (aw *assistantWorker) SetStatus(ctx context.Context, status database.Assist
 	return nil
 }
 
-func (aw *assistantWorker) PutInput(ctx context.Context, input string, useAgents bool, resources []database.UserResource) error {
+func (aw *assistantWorker) PutInput(
+	ctx context.Context,
+	input string,
+	useAgents, flowControlEnabled bool,
+	resources []database.UserResource,
+) error {
 	ctx, span := obs.Observer.NewSpan(ctx, obs.SpanKindInternal, "controller.assistantWorker.PutInput")
 	defer span.End()
 
@@ -545,7 +580,12 @@ func (aw *assistantWorker) PutInput(ctx context.Context, input string, useAgents
 		}
 	}
 
-	ain := assistantInput{input: input, useAgents: useAgents, done: make(chan error, 1)}
+	ain := assistantInput{
+		input:              input,
+		useAgents:          useAgents,
+		flowControlEnabled: flowControlEnabled,
+		done:               make(chan error, 1),
+	}
 	select {
 	case <-aw.ctx.Done():
 		close(ain.done)

@@ -28,6 +28,7 @@ import { toast } from 'sonner';
 import { z } from 'zod';
 
 import type { AgentConfigInput, AgentsConfigInput, ProviderConfigFragmentFragment } from '@/graphql/types';
+import type { ModelService } from '@/lib/model-services';
 
 import {
     AppHeader,
@@ -74,6 +75,7 @@ import {
 } from '@/graphql/types';
 import { useAppForm } from '@/hooks/use-app-form';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { loadModelServices, modelProviderLabels } from '@/lib/model-services';
 import { routes } from '@/lib/routes';
 import { cn } from '@/lib/utils';
 
@@ -179,7 +181,7 @@ interface NumberInputProps extends BaseInputProps {
 
 type Provider = ProviderConfigFragmentFragment;
 
-function FormComboboxItem<T extends FieldValues = FieldValues>({
+export function FormComboboxItem<T extends FieldValues = FieldValues>({
     allowCustom = true,
     contentClass,
     control,
@@ -655,6 +657,8 @@ const agentConfigSchema = z
 
 const formSchema = z.object({
     agents: z.record(z.string(), agentConfigSchema).optional(),
+    modelCredentialId: requiredString('请选择 API 密钥'),
+    modelServiceId: requiredString('请选择模型服务'),
     name: requiredString('Provider name is required').pipe(z.string().max(50, 'Maximum 50 characters allowed')),
     type: requiredString('Provider type is required'),
 });
@@ -885,7 +889,7 @@ export const transformFormToGraphQL = (
     name: string;
     type: ProviderType;
 } => {
-    const agents = Object.entries(formData.agents || {})
+    const agentConfigs = Object.entries(formData.agents || {})
         .filter(([key, data]) => key !== '__typename' && data?.model)
         .reduce((configs, [key, data]) => {
             const config: AgentConfigInput = {
@@ -930,6 +934,12 @@ export const transformFormToGraphQL = (
 
             return { ...configs, [key]: config };
         }, {} as AgentsConfigInput);
+
+    const agents: AgentsConfigInput = {
+        ...agentConfigs,
+        modelCredentialId: formData.modelCredentialId,
+        modelServiceId: formData.modelServiceId,
+    };
 
     return {
         agents,
@@ -1157,11 +1167,29 @@ const extractAgentTypes = (agents: unknown): null | string[] => {
     }
 
     const types = Object.entries(agents)
-        .filter(([key, data]) => key !== '__typename' && data)
+        .filter(
+            ([key, data]) => key !== '__typename' && key !== 'modelServiceId' && key !== 'modelCredentialId' && data,
+        )
         .map(([key]) => key)
         .sort();
 
     return types.length > 0 ? types : null;
+};
+
+const normalizeAgents = (agents: unknown): FormAgents => {
+    const normalized = normalizeGraphQLData(agents);
+
+    if (!normalized || typeof normalized !== 'object' || Array.isArray(normalized)) {
+        return {};
+    }
+
+    const {
+        modelCredentialId: _modelCredentialId,
+        modelServiceId: _modelServiceId,
+        ...agentConfigs
+    } = normalized as Record<string, unknown>;
+
+    return agentConfigs as FormAgents;
 };
 
 interface DeleteProviderDialogProps extends Pick<
@@ -1203,6 +1231,8 @@ function SettingsProvider() {
     const [isTestDialogOpen, setIsTestDialogOpen] = useState(false);
     const [testResults, setTestResults] = useState<null | ProviderTestResults>(null);
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+    const [modelServices, setModelServices] = useState<ModelService[]>([]);
+    const [modelServicesLoaded, setModelServicesLoaded] = useState(false);
 
     const isNew = providerId === 'new';
     const isLoading = isCreateLoading || isUpdateLoading || isDeleteLoading;
@@ -1211,6 +1241,8 @@ function SettingsProvider() {
     const form = useAppForm<FormInput, unknown, FormData>({
         defaultValues: {
             agents: {},
+            modelCredentialId: undefined,
+            modelServiceId: undefined,
             name: undefined,
             type: undefined,
         },
@@ -1233,10 +1265,46 @@ function SettingsProvider() {
     }, [submitError]);
 
     const selectedType = useWatch({ control, name: 'type' });
+    const selectedServiceId = useWatch({ control, name: 'modelServiceId' });
+    const selectedCredentialId = useWatch({ control, name: 'modelCredentialId' });
+
+    useEffect(() => {
+        void loadModelServices()
+            .then(setModelServices)
+            .catch((loadError: unknown) =>
+                setSubmitError(loadError instanceof Error ? loadError.message : '加载模型服务和密钥失败'),
+            )
+            .finally(() => setModelServicesLoaded(true));
+    }, []);
+
+    useEffect(() => {
+        const service = modelServices.find((item) => item.id.toString() === selectedServiceId);
+
+        if (!service) {
+            return;
+        }
+
+        const selectedCredential = service.credentials.find(
+            (item) => item.id.toString() === selectedCredentialId && item.enabled,
+        );
+
+        if (!selectedCredential) {
+            setValue('modelCredentialId', service.credentials.find((item) => item.enabled)?.id.toString(), {
+                shouldDirty: false,
+                shouldValidate: true,
+            });
+        }
+
+        if (selectedType !== service.providerType) {
+            setValue('type', service.providerType, { shouldDirty: false, shouldValidate: true });
+        }
+    }, [modelServices, selectedCredentialId, selectedServiceId, selectedType, setValue]);
 
     const formQueryParams = useMemo(
         () => ({
+            credentialId: searchParams.get('credentialId'),
             id: searchParams.get('id'),
+            serviceId: searchParams.get('serviceId'),
             type: searchParams.get('type'),
         }),
         [searchParams],
@@ -1312,9 +1380,11 @@ function SettingsProvider() {
         if (defaultProvider?.agents) {
             const agents = Object.fromEntries(
                 Object.entries(defaultProvider.agents)
-                    .filter(([key]) => key !== '__typename')
+                    .filter(([key]) => key !== '__typename' && key !== 'modelServiceId' && key !== 'modelCredentialId')
                     .map(([key, data]) => {
-                        const agent = { ...data };
+                        const agent = (data && typeof data === 'object' ? { ...data } : {}) as Record<string, unknown> & {
+                            model?: string;
+                        };
 
                         if (agent.model && !availableModels.find((m) => m.name === agent.model)) {
                             agent.model = availableModels[0]?.name || agent.model;
@@ -1324,7 +1394,7 @@ function SettingsProvider() {
                     }),
             );
 
-            setValue('agents', normalizeGraphQLData(agents) as FormAgents);
+            setValue('agents', normalizeAgents(agents));
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [availableModels, data, isNew, selectedType]);
@@ -1359,26 +1429,50 @@ function SettingsProvider() {
                 params.delete('type');
             }
 
+            if (selectedServiceId) {
+                params.set('serviceId', selectedServiceId);
+            } else {
+                params.delete('serviceId');
+            }
+
+            if (selectedCredentialId) {
+                params.set('credentialId', selectedCredentialId);
+            } else {
+                params.delete('credentialId');
+            }
+
             return params;
         });
-    }, [selectedType, setSearchParams, isNew, searchParams]);
+    }, [selectedCredentialId, selectedServiceId, selectedType, setSearchParams, isNew, searchParams]);
 
     useEffect(() => {
-        if (!data?.settingsProviders) {
+        if (!data?.settingsProviders || !modelServicesLoaded) {
             return;
         }
 
         const providers = data.settingsProviders;
 
         if (isNew || !providerId) {
-            const queryType = formQueryParams.type ?? undefined;
+            const requestedService = modelServices.find(
+                (service) => service.id.toString() === formQueryParams.serviceId,
+            );
+            const fallbackService = modelServices.find(
+                (service) =>
+                    service.credentials.some((credential) => credential.enabled) &&
+                    (!formQueryParams.type || service.providerType === formQueryParams.type),
+            );
+            const service = requestedService ?? fallbackService;
+            const credential =
+                service?.credentials.find(
+                    (item) => item.id.toString() === formQueryParams.credentialId && item.enabled,
+                ) ?? service?.credentials.find((item) => item.enabled);
+            const queryType = service?.providerType ?? formQueryParams.type ?? undefined;
+            const serviceId = service?.id.toString();
+            const credentialId = credential?.id.toString();
             const queryId = formQueryParams.id;
 
-            // A hand-typed ?type= URL bypasses the create menu's enabled-only filter; an
-            // unknown or disabled type would otherwise create a dead provider or dump a raw
-            // zod error on submit. Bounce it to the list. (Clone-by-id is gated separately below.)
-            if (!queryId && queryType && !providers.enabled[queryType as keyof typeof providers.enabled]) {
-                toast.error(`Provider type "${queryType}" is not available`);
+            if (!queryId && formQueryParams.type && !service) {
+                toast.error(`模型类型“${formQueryParams.type}”没有可用的模型服务和 API 密钥`);
                 navigate(routes.settings.providers, { replace: true });
 
                 return;
@@ -1389,18 +1483,29 @@ function SettingsProvider() {
 
                 if (sourceProvider) {
                     const { agents, name, type: sourceType } = sourceProvider;
+                    const sourceService =
+                        modelServices.find((item) => item.id.toString() === agents?.modelServiceId?.toString()) ??
+                        modelServices.find(
+                            (item) =>
+                                item.providerType === sourceType &&
+                                item.credentials.some((sourceCredential) => sourceCredential.enabled),
+                        );
+                    const sourceCredential =
+                        sourceService?.credentials.find(
+                            (item) => item.id.toString() === agents?.modelCredentialId?.toString() && item.enabled,
+                        ) ?? sourceService?.credentials.find((item) => item.enabled);
 
-                    // Cloning a provider whose type is now disabled would only make
-                    // another dead one — gate it the same as the ?type= path.
-                    if (sourceType && !providers.enabled[sourceType as keyof typeof providers.enabled]) {
-                        toast.error(`Provider type "${sourceType}" is not available`);
+                    if (!sourceService || !sourceCredential) {
+                        toast.error(`模型提供商“${name}”没有可复制的模型服务和 API 密钥`);
                         navigate(routes.settings.providers, { replace: true });
 
                         return;
                     }
 
                     reset({
-                        agents: agents ? (normalizeGraphQLData(agents) as FormAgents) : {},
+                        agents: normalizeAgents(agents),
+                        modelCredentialId: sourceCredential.id.toString(),
+                        modelServiceId: sourceService.id.toString(),
                         name: `${name} (Copy)`,
                         type: sourceType ?? undefined,
                     });
@@ -1412,7 +1517,9 @@ function SettingsProvider() {
                     data.settingsProviders.default[queryType as keyof typeof data.settingsProviders.default];
 
                 reset({
-                    agents: defaultProvider?.agents ? (normalizeGraphQLData(defaultProvider.agents) as FormAgents) : {},
+                    agents: normalizeAgents(defaultProvider?.agents),
+                    modelCredentialId: credentialId,
+                    modelServiceId: serviceId,
                     name: undefined,
                     type: queryType,
                 });
@@ -1423,6 +1530,8 @@ function SettingsProvider() {
             if (!selectedType) {
                 reset({
                     agents: {},
+                    modelCredentialId: credentialId,
+                    modelServiceId: serviceId,
                     name: undefined,
                     type: queryType,
                 });
@@ -1442,12 +1551,14 @@ function SettingsProvider() {
         const { agents, name, type } = provider;
 
         reset({
-            agents: agents ? (normalizeGraphQLData(agents) as FormAgents) : {},
+            agents: normalizeAgents(agents),
+            modelCredentialId: agents?.modelCredentialId?.toString() || undefined,
+            modelServiceId: agents?.modelServiceId?.toString() || undefined,
             name: name || undefined,
             type: type || undefined,
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [data, formQueryParams, isNew, providerId, selectedType]);
+    }, [data, formQueryParams, isNew, modelServices, modelServicesLoaded, providerId, selectedType]);
 
     const performSave = async (): Promise<boolean> => {
         // watch() — not getValues() — because disabled fields must be included in the payload.
@@ -1630,7 +1741,13 @@ function SettingsProvider() {
             const agent = agents[agentKey as keyof AgentsConfigInput] as AgentConfigInput;
 
             const singleResult = await testAgent({
-                variables: { agent, agentType: agentTypesMap[agentKey] ?? AgentConfigType.Simple, type },
+                variables: {
+                    agent,
+                    agentType: agentTypesMap[agentKey] ?? AgentConfigType.Simple,
+                    modelCredentialId: formData.modelCredentialId,
+                    modelServiceId: formData.modelServiceId,
+                    type,
+                },
             });
             setTestResults({ [agentKey]: singleResult.data?.testAgent } as ProviderTestResults);
             setIsTestDialogOpen(true);
@@ -1685,9 +1802,12 @@ function SettingsProvider() {
         );
     }
 
-    const providers = data?.settingsProviders?.models
-        ? Object.keys(data?.settingsProviders.models).filter((key) => key !== '__typename')
-        : [];
+    const selectedModelService = modelServices.find((service) => service.id.toString() === selectedServiceId);
+    const selectableServices = modelServices.filter(
+        (service) =>
+            service.id.toString() === selectedServiceId || service.credentials.some((credential) => credential.enabled),
+    );
+    const selectableCredentials = selectedModelService?.credentials ?? [];
 
     const metaFields = (
         <div className="flex flex-col gap-6">
@@ -1698,24 +1818,99 @@ function SettingsProvider() {
                 </p>
             </div>
 
-            <FormComboboxItem
-                allowCustom={false}
+            <FormField
                 control={control}
-                description="The type of language model provider"
-                disabled={isLoading || !!selectedType}
-                label="Type"
-                name="type"
-                options={providers}
-                placeholder="Select provider"
+                name="modelServiceId"
+                render={({ field }) => (
+                    <FormItem>
+                        <FormLabel>模型服务</FormLabel>
+                        <Select
+                            disabled={isLoading || !modelServicesLoaded}
+                            onValueChange={(serviceId) => {
+                                const service = modelServices.find((item) => item.id.toString() === serviceId);
+                                const credential = service?.credentials.find((item) => item.enabled);
+
+                                field.onChange(serviceId);
+                                setValue('modelCredentialId', credential?.id.toString(), {
+                                    shouldDirty: true,
+                                    shouldValidate: true,
+                                });
+                                setValue('type', service?.providerType, { shouldDirty: true, shouldValidate: true });
+                            }}
+                            value={field.value ?? ''}
+                        >
+                            <FormControl>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="请选择模型服务" />
+                                </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                                {selectableServices.map((service) => (
+                                    <SelectItem
+                                        key={service.id}
+                                        value={service.id.toString()}
+                                    >
+                                        {service.name} · {modelProviderLabels[service.providerType]}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <FormDescription>决定接口协议和 Base URL；自定义服务使用 OpenAI 兼容协议。</FormDescription>
+                        <FormMessage />
+                    </FormItem>
+                )}
             />
+
+            <FormField
+                control={control}
+                name="modelCredentialId"
+                render={({ field }) => (
+                    <FormItem>
+                        <FormLabel>API 密钥</FormLabel>
+                        <Select
+                            disabled={isLoading || !selectedModelService}
+                            onValueChange={field.onChange}
+                            value={field.value ?? ''}
+                        >
+                            <FormControl>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="请选择用于此提供商的密钥" />
+                                </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                                {selectableCredentials.map((credential) => (
+                                    <SelectItem
+                                        disabled={!credential.enabled}
+                                        key={credential.id}
+                                        value={credential.id.toString()}
+                                    >
+                                        {credential.name} · {credential.masked}
+                                        {credential.remark ? ` · ${credential.remark}` : ''}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <FormDescription>每个模型提供商绑定一把明确的密钥，运行任务时不会随机切换。</FormDescription>
+                        <FormMessage />
+                    </FormItem>
+                )}
+            />
+
+            <div className="grid gap-2">
+                <span className="text-sm font-medium">接口协议</span>
+                <Input
+                    disabled
+                    value={selectedModelService ? modelProviderLabels[selectedModelService.providerType] : ''}
+                />
+            </div>
 
             <FormInputStringItem
                 control={control}
-                description="A unique name for your provider configuration"
+                description="任务运行时将按这个自定义名称选择模型提供商"
                 disabled={isLoading}
-                label="Name"
+                label="提供商名称"
                 name="name"
-                placeholder="Enter provider name"
+                placeholder="例如：硅基流动-主账号-代码模型"
             />
         </div>
     );

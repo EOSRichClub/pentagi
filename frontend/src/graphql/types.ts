@@ -64,6 +64,8 @@ export type AgentsConfigInput = {
     enricher: AgentConfigInput;
     generator: AgentConfigInput;
     installer: AgentConfigInput;
+    modelCredentialId?: string | number | null | undefined;
+    modelServiceId?: string | number | null | undefined;
     pentester: AgentConfigInput;
     primaryAgent: AgentConfigInput;
     refiner: AgentConfigInput;
@@ -454,6 +456,7 @@ export type AssistantFragmentFragment = {
     status: StatusType;
     flowId: string;
     useAgents: boolean;
+    flowControlEnabled: boolean;
     createdAt: string;
     updatedAt: string;
     provider: ProviderFragmentFragment;
@@ -525,6 +528,8 @@ export type ProviderConfigFragmentFragment = {
 };
 
 export type AgentsConfigFragmentFragment = {
+    modelServiceId: string | null;
+    modelCredentialId: string | null;
     simple: AgentConfigFragmentFragment;
     simpleJson: AgentConfigFragmentFragment;
     primaryAgent: AgentConfigFragmentFragment;
@@ -1087,6 +1092,7 @@ export type CreateAssistantMutationVariables = Exact<{
     modelProvider: string;
     input: string;
     useAgents: boolean;
+    flowControlEnabled?: boolean;
     resourceIds?: Array<string | number> | string | number | null | undefined;
 }>;
 
@@ -1099,6 +1105,7 @@ export type CallAssistantMutationVariables = Exact<{
     assistantId: string | number;
     input: string;
     useAgents: boolean;
+    flowControlEnabled?: boolean;
     resourceIds?: Array<string | number> | string | number | null | undefined;
 }>;
 
@@ -1122,6 +1129,8 @@ export type TestAgentMutationVariables = Exact<{
     type: ProviderType;
     agentType: AgentConfigType;
     agent: AgentConfigInput;
+    modelServiceId?: string | number | null | undefined;
+    modelCredentialId?: string | number | null | undefined;
 }>;
 
 export type TestAgentMutation = { testAgent: AgentTestResultFragmentFragment };
@@ -1820,6 +1829,7 @@ export const AssistantFragmentFragmentDoc = {
                     },
                     { kind: 'Field', name: { kind: 'Name', value: 'flowId' } },
                     { kind: 'Field', name: { kind: 'Name', value: 'useAgents' } },
+                    { kind: 'Field', name: { kind: 'Name', value: 'flowControlEnabled' } },
                     { kind: 'Field', name: { kind: 'Name', value: 'createdAt' } },
                     { kind: 'Field', name: { kind: 'Name', value: 'updatedAt' } },
                 ],
@@ -2219,6 +2229,8 @@ export const AgentsConfigFragmentFragmentDoc = {
             selectionSet: {
                 kind: 'SelectionSet',
                 selections: [
+                    { kind: 'Field', name: { kind: 'Name', value: 'modelServiceId' } },
+                    { kind: 'Field', name: { kind: 'Name', value: 'modelCredentialId' } },
                     {
                         kind: 'Field',
                         name: { kind: 'Name', value: 'simple' },
@@ -2489,6 +2501,8 @@ export const ProviderConfigFragmentFragmentDoc = {
             selectionSet: {
                 kind: 'SelectionSet',
                 selections: [
+                    { kind: 'Field', name: { kind: 'Name', value: 'modelServiceId' } },
+                    { kind: 'Field', name: { kind: 'Name', value: 'modelCredentialId' } },
                     {
                         kind: 'Field',
                         name: { kind: 'Name', value: 'simple' },
@@ -3944,6 +3958,8 @@ export const SettingsProvidersDocument = {
             selectionSet: {
                 kind: 'SelectionSet',
                 selections: [
+                    { kind: 'Field', name: { kind: 'Name', value: 'modelServiceId' } },
+                    { kind: 'Field', name: { kind: 'Name', value: 'modelCredentialId' } },
                     {
                         kind: 'Field',
                         name: { kind: 'Name', value: 'simple' },
@@ -5634,6 +5650,7 @@ export const AssistantsDocument = {
                     },
                     { kind: 'Field', name: { kind: 'Name', value: 'flowId' } },
                     { kind: 'Field', name: { kind: 'Name', value: 'useAgents' } },
+                    { kind: 'Field', name: { kind: 'Name', value: 'flowControlEnabled' } },
                     { kind: 'Field', name: { kind: 'Name', value: 'createdAt' } },
                     { kind: 'Field', name: { kind: 'Name', value: 'updatedAt' } },
                 ],
@@ -8030,6 +8047,15 @@ export const CreateAssistantDocument = {
                 },
                 {
                     kind: 'VariableDefinition',
+                    variable: { kind: 'Variable', name: { kind: 'Name', value: 'flowControlEnabled' } },
+                    type: {
+                        kind: 'NonNullType',
+                        type: { kind: 'NamedType', name: { kind: 'Name', value: 'Boolean' } },
+                    },
+                    defaultValue: { kind: 'BooleanValue', value: false },
+                },
+                {
+                    kind: 'VariableDefinition',
                     variable: { kind: 'Variable', name: { kind: 'Name', value: 'resourceIds' } },
                     type: {
                         kind: 'ListType',
@@ -8063,6 +8089,11 @@ export const CreateAssistantDocument = {
                                 kind: 'Argument',
                                 name: { kind: 'Name', value: 'useAgents' },
                                 value: { kind: 'Variable', name: { kind: 'Name', value: 'useAgents' } },
+                            },
+                            {
+                                kind: 'Argument',
+                                name: { kind: 'Name', value: 'flowControlEnabled' },
+                                value: { kind: 'Variable', name: { kind: 'Name', value: 'flowControlEnabled' } },
                             },
                             {
                                 kind: 'Argument',
@@ -8181,6 +8212,7 @@ export const CreateAssistantDocument = {
                     },
                     { kind: 'Field', name: { kind: 'Name', value: 'flowId' } },
                     { kind: 'Field', name: { kind: 'Name', value: 'useAgents' } },
+                    { kind: 'Field', name: { kind: 'Name', value: 'flowControlEnabled' } },
                     { kind: 'Field', name: { kind: 'Name', value: 'createdAt' } },
                     { kind: 'Field', name: { kind: 'Name', value: 'updatedAt' } },
                 ],
@@ -8221,6 +8253,15 @@ export const CallAssistantDocument = {
                 },
                 {
                     kind: 'VariableDefinition',
+                    variable: { kind: 'Variable', name: { kind: 'Name', value: 'flowControlEnabled' } },
+                    type: {
+                        kind: 'NonNullType',
+                        type: { kind: 'NamedType', name: { kind: 'Name', value: 'Boolean' } },
+                    },
+                    defaultValue: { kind: 'BooleanValue', value: false },
+                },
+                {
+                    kind: 'VariableDefinition',
                     variable: { kind: 'Variable', name: { kind: 'Name', value: 'resourceIds' } },
                     type: {
                         kind: 'ListType',
@@ -8254,6 +8295,11 @@ export const CallAssistantDocument = {
                                 kind: 'Argument',
                                 name: { kind: 'Name', value: 'useAgents' },
                                 value: { kind: 'Variable', name: { kind: 'Name', value: 'useAgents' } },
+                            },
+                            {
+                                kind: 'Argument',
+                                name: { kind: 'Name', value: 'flowControlEnabled' },
+                                value: { kind: 'Variable', name: { kind: 'Name', value: 'flowControlEnabled' } },
                             },
                             {
                                 kind: 'Argument',
@@ -8346,6 +8392,7 @@ export const StopAssistantDocument = {
                     },
                     { kind: 'Field', name: { kind: 'Name', value: 'flowId' } },
                     { kind: 'Field', name: { kind: 'Name', value: 'useAgents' } },
+                    { kind: 'Field', name: { kind: 'Name', value: 'flowControlEnabled' } },
                     { kind: 'Field', name: { kind: 'Name', value: 'createdAt' } },
                     { kind: 'Field', name: { kind: 'Name', value: 'updatedAt' } },
                 ],
@@ -8428,6 +8475,16 @@ export const TestAgentDocument = {
                         type: { kind: 'NamedType', name: { kind: 'Name', value: 'AgentConfigInput' } },
                     },
                 },
+                {
+                    kind: 'VariableDefinition',
+                    variable: { kind: 'Variable', name: { kind: 'Name', value: 'modelServiceId' } },
+                    type: { kind: 'NamedType', name: { kind: 'Name', value: 'ID' } },
+                },
+                {
+                    kind: 'VariableDefinition',
+                    variable: { kind: 'Variable', name: { kind: 'Name', value: 'modelCredentialId' } },
+                    type: { kind: 'NamedType', name: { kind: 'Name', value: 'ID' } },
+                },
             ],
             selectionSet: {
                 kind: 'SelectionSet',
@@ -8450,6 +8507,16 @@ export const TestAgentDocument = {
                                 kind: 'Argument',
                                 name: { kind: 'Name', value: 'agent' },
                                 value: { kind: 'Variable', name: { kind: 'Name', value: 'agent' } },
+                            },
+                            {
+                                kind: 'Argument',
+                                name: { kind: 'Name', value: 'modelServiceId' },
+                                value: { kind: 'Variable', name: { kind: 'Name', value: 'modelServiceId' } },
+                            },
+                            {
+                                kind: 'Argument',
+                                name: { kind: 'Name', value: 'modelCredentialId' },
+                                value: { kind: 'Variable', name: { kind: 'Name', value: 'modelCredentialId' } },
                             },
                         ],
                         selectionSet: {
@@ -8853,6 +8920,8 @@ export const CreateProviderDocument = {
             selectionSet: {
                 kind: 'SelectionSet',
                 selections: [
+                    { kind: 'Field', name: { kind: 'Name', value: 'modelServiceId' } },
+                    { kind: 'Field', name: { kind: 'Name', value: 'modelCredentialId' } },
                     {
                         kind: 'Field',
                         name: { kind: 'Name', value: 'simple' },
@@ -9130,6 +9199,8 @@ export const UpdateProviderDocument = {
             selectionSet: {
                 kind: 'SelectionSet',
                 selections: [
+                    { kind: 'Field', name: { kind: 'Name', value: 'modelServiceId' } },
+                    { kind: 'Field', name: { kind: 'Name', value: 'modelCredentialId' } },
                     {
                         kind: 'Field',
                         name: { kind: 'Name', value: 'simple' },
@@ -10447,6 +10518,7 @@ export const AssistantCreatedDocument = {
                     },
                     { kind: 'Field', name: { kind: 'Name', value: 'flowId' } },
                     { kind: 'Field', name: { kind: 'Name', value: 'useAgents' } },
+                    { kind: 'Field', name: { kind: 'Name', value: 'flowControlEnabled' } },
                     { kind: 'Field', name: { kind: 'Name', value: 'createdAt' } },
                     { kind: 'Field', name: { kind: 'Name', value: 'updatedAt' } },
                 ],
@@ -10523,6 +10595,7 @@ export const AssistantUpdatedDocument = {
                     },
                     { kind: 'Field', name: { kind: 'Name', value: 'flowId' } },
                     { kind: 'Field', name: { kind: 'Name', value: 'useAgents' } },
+                    { kind: 'Field', name: { kind: 'Name', value: 'flowControlEnabled' } },
                     { kind: 'Field', name: { kind: 'Name', value: 'createdAt' } },
                     { kind: 'Field', name: { kind: 'Name', value: 'updatedAt' } },
                 ],
@@ -10599,6 +10672,7 @@ export const AssistantDeletedDocument = {
                     },
                     { kind: 'Field', name: { kind: 'Name', value: 'flowId' } },
                     { kind: 'Field', name: { kind: 'Name', value: 'useAgents' } },
+                    { kind: 'Field', name: { kind: 'Name', value: 'flowControlEnabled' } },
                     { kind: 'Field', name: { kind: 'Name', value: 'createdAt' } },
                     { kind: 'Field', name: { kind: 'Name', value: 'updatedAt' } },
                 ],
@@ -11363,6 +11437,8 @@ export const ProviderCreatedDocument = {
             selectionSet: {
                 kind: 'SelectionSet',
                 selections: [
+                    { kind: 'Field', name: { kind: 'Name', value: 'modelServiceId' } },
+                    { kind: 'Field', name: { kind: 'Name', value: 'modelCredentialId' } },
                     {
                         kind: 'Field',
                         name: { kind: 'Name', value: 'simple' },
@@ -11603,6 +11679,8 @@ export const ProviderUpdatedDocument = {
             selectionSet: {
                 kind: 'SelectionSet',
                 selections: [
+                    { kind: 'Field', name: { kind: 'Name', value: 'modelServiceId' } },
+                    { kind: 'Field', name: { kind: 'Name', value: 'modelCredentialId' } },
                     {
                         kind: 'Field',
                         name: { kind: 'Name', value: 'simple' },
@@ -11843,6 +11921,8 @@ export const ProviderDeletedDocument = {
             selectionSet: {
                 kind: 'SelectionSet',
                 selections: [
+                    { kind: 'Field', name: { kind: 'Name', value: 'modelServiceId' } },
+                    { kind: 'Field', name: { kind: 'Name', value: 'modelCredentialId' } },
                     {
                         kind: 'Field',
                         name: { kind: 'Name', value: 'simple' },

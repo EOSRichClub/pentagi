@@ -14,6 +14,7 @@ import {
     FlowDeletedDocument,
     FlowsDocument,
     FlowUpdatedDocument,
+    ResultType,
 } from '@/graphql/types';
 import { Log } from '@/lib/log';
 
@@ -102,7 +103,7 @@ export function FlowsProvider({ children }: FlowsProviderProps) {
 
     const createFlowWithAssistant = useCallback(
         async (values: FlowFormValues) => {
-            const { message, providerName, resourceIds, useAgents } = values;
+            const { flowControlEnabled, message, providerName, resourceIds, useAgents } = values;
 
             const input = message.trim();
             const modelProvider = providerName.trim();
@@ -114,6 +115,7 @@ export function FlowsProvider({ children }: FlowsProviderProps) {
             try {
                 const { data } = await createAssistantMutation({
                     variables: {
+                        flowControlEnabled,
                         flowId: '0',
                         input,
                         modelProvider,
@@ -149,25 +151,30 @@ export function FlowsProvider({ children }: FlowsProviderProps) {
                 return false;
             }
 
-            const flowDescription = `${title || 'Unknown'} (ID: ${flowId})`;
+            const flowDescription = `${title || '未命名任务流'}（ID：${flowId}）`;
 
-            const loadingToastId = toast.loading('Deleting flow...', {
+            const loadingToastId = toast.loading('正在删除任务流并清理容器…', {
                 description: flowDescription,
             });
 
             try {
-                await deleteFlowMutation({
+                const { data } = await deleteFlowMutation({
                     variables: { flowId },
                 });
 
-                toast.success('Flow deleted successfully', {
+                if (data?.deleteFlow !== ResultType.Success) {
+                    throw new Error('服务器未能完成任务流清理');
+                }
+
+                await refetch();
+                toast.success('任务流、容器和工作目录已删除', {
                     description: flowDescription,
                     id: loadingToastId,
                 });
 
                 return true;
             } catch (error) {
-                const errorMessage = error instanceof Error ? error.message : 'An error occurred while deleting flow';
+                const errorMessage = error instanceof Error ? error.message : '删除任务流失败';
                 toast.error(errorMessage, {
                     description: flowDescription,
                     id: loadingToastId,
@@ -177,7 +184,7 @@ export function FlowsProvider({ children }: FlowsProviderProps) {
                 return false;
             }
         },
-        [deleteFlowMutation],
+        [deleteFlowMutation, refetch],
     );
 
     const finishFlow = useCallback(

@@ -39,6 +39,9 @@ describe('routes registry', () => {
         expect(routes.flow('1', { tab: 'chat' })).toBe('/flows/1?tab=chat');
         expect(routes.flow('1')).toBe('/flows/1');
         expect(routes.settings.newProvider({ id: 'a', type: 'b' })).toBe('/settings/providers/new?id=a&type=b');
+        expect(routes.settings.newProvider({ credentialId: '4', serviceId: '3', type: 'CUSTOM' })).toBe(
+            '/settings/providers/new?credentialId=4&serviceId=3&type=CUSTOM',
+        );
         expect(routes.settings.newProvider()).toBe('/settings/providers/new');
     });
 

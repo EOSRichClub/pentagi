@@ -29,6 +29,7 @@ const containsSearchValue = (text: null | string | undefined, searchValue: strin
 function FlowMessage({ log, searchValue = '' }: FlowMessageProps) {
     const { createdAt, message, result, resultFormat = ResultFormat.Plain, thinking, type } = log;
     const isReportMessage = type === MessageLogType.Report;
+    const isStopReasonMessage = type === MessageLogType.Advice && message.startsWith('任务已停止：');
 
     const searchChecks = useMemo(() => {
         const trimmedSearch = searchValue.trim();
@@ -43,7 +44,7 @@ function FlowMessage({ log, searchValue = '' }: FlowMessageProps) {
         };
     }, [searchValue, thinking, result]);
 
-    const [isDetailsVisible, setIsDetailsVisible] = useState(isReportMessage);
+    const [isDetailsVisible, setIsDetailsVisible] = useState(isReportMessage || isStopReasonMessage);
     const [isThinkingVisible, setIsThinkingVisible] = useState(false);
 
     const [prevSearchValue, setPrevSearchValue] = useState(searchValue);
@@ -70,7 +71,7 @@ function FlowMessage({ log, searchValue = '' }: FlowMessageProps) {
                 setIsDetailsVisible(true);
             }
         } else {
-            setIsDetailsVisible(isReportMessage);
+            setIsDetailsVisible(isReportMessage || isStopReasonMessage);
             setIsThinkingVisible(false);
         }
     }
@@ -156,6 +157,7 @@ function FlowMessage({ log, searchValue = '' }: FlowMessageProps) {
                 className={cn(
                     'bg-card text-card-foreground max-w-[90%] rounded-xl border p-3 shadow-sm',
                     resultFormat === ResultFormat.Terminal && isDetailsVisible ? 'w-full' : '',
+                    isStopReasonMessage && 'border-destructive/60 bg-destructive/5',
                 )}
             >
                 {shouldShowThinkingToggle && (
@@ -197,7 +199,11 @@ function FlowMessage({ log, searchValue = '' }: FlowMessageProps) {
                     type === MessageLogType.Input ? 'flex-row-reverse' : 'flex-row'
                 }`}
             >
-                <FlowMessageTypeIcon type={type} />
+                <FlowMessageTypeIcon
+                    className={isStopReasonMessage ? 'text-destructive' : undefined}
+                    tooltip={isStopReasonMessage ? '停止原因' : undefined}
+                    type={type}
+                />
                 <Tooltip>
                     <TooltipTrigger asChild>
                         <Copy

@@ -2,6 +2,7 @@ import { Avatar, AvatarFallback } from '@radix-ui/react-avatar';
 import {
     ChevronsUpDown,
     Clock,
+    Ellipsis,
     FileText,
     Folder,
     GitFork,
@@ -10,20 +11,32 @@ import {
     LogOut,
     Monitor,
     Moon,
+    PencilLine,
     Plus,
     Settings,
     Settings2,
     Star,
     Sun,
+    Trash,
     UserIcon,
 } from 'lucide-react';
-import { useMemo } from 'react';
-import { Link, useLocation, useMatch, useParams } from 'react-router-dom';
+import { type FormEvent, useMemo, useState } from 'react';
+import { Link, useLocation, useMatch, useNavigate, useParams } from 'react-router-dom';
 
 import type { Flow } from '@/providers/sidebar-flows-provider';
 import type { Theme } from '@/providers/theme-provider';
 
 import Logo from '@/components/icons/logo';
+import ConfirmationDialog from '@/components/shared/confirmation-dialog';
+import { Button } from '@/components/ui/button';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -32,6 +45,8 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
     Sidebar,
     SidebarContent,
@@ -46,6 +61,7 @@ import {
     SidebarMenuItem,
     SidebarRail,
 } from '@/components/ui/sidebar';
+import { Spinner } from '@/components/ui/spinner';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useResourcesUpload } from '@/features/resources/use-resources-upload';
 import { useTheme } from '@/hooks/use-theme';
@@ -58,10 +74,13 @@ interface FlowMenuItemProps {
     activeFlowId: null | number;
     flow: Flow;
     isFavorite: boolean;
+    onDelete: (flow: Flow) => void;
+    onRename: (flow: Flow) => void;
     onToggleFavorite: (flowId: string) => void;
 }
 
 export function MainSidebar() {
+    const navigate = useNavigate();
     const location = useLocation();
     const isDashboardActive = useMatch('/dashboard');
     const isFlowsActive = useMatch('/flows/*');
@@ -75,11 +94,56 @@ export function MainSidebar() {
     const user = authInfo?.user;
     const { setTheme, theme } = useTheme();
     const { addFavoriteFlow, favoriteFlowIds, removeFavoriteFlow } = useFavorites();
-    const { flows } = useSidebarFlows();
+    const { deleteFlow, flows, renameFlow } = useSidebarFlows();
+    const [renamingFlow, setRenamingFlow] = useState<Flow | null>(null);
+    const [renameTitle, setRenameTitle] = useState('');
+    const [isRenaming, setIsRenaming] = useState(false);
+    const [deletingFlow, setDeletingFlow] = useState<Flow | null>(null);
 
     const resourcesUpload = useResourcesUpload();
 
     const flowId = useMemo(() => (flowIdParam ? Number(flowIdParam) : null), [flowIdParam]);
+
+    const handleRenameOpen = (flow: Flow) => {
+        setRenamingFlow(flow);
+        setRenameTitle(flow.title);
+    };
+
+    const handleRenameSubmit = async (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+
+        if (!renamingFlow || !renameTitle.trim() || isRenaming) {
+            return;
+        }
+
+        setIsRenaming(true);
+
+        try {
+            if (await renameFlow(renamingFlow, renameTitle)) {
+                setRenamingFlow(null);
+            }
+        } finally {
+            setIsRenaming(false);
+        }
+    };
+
+    const handleDeleteConfirm = async () => {
+        if (!deletingFlow) {
+            return;
+        }
+
+        const deletedFlowId = Number(deletingFlow.id);
+        const deleted = await deleteFlow(deletingFlow);
+
+        if (deleted) {
+            removeFavoriteFlow(deletingFlow.id);
+            setDeletingFlow(null);
+
+            if (flowId === deletedFlowId) {
+                navigate(routes.flows);
+            }
+        }
+    };
 
     const favoriteFlows = useMemo(
         () =>
@@ -142,7 +206,10 @@ export function MainSidebar() {
                                 >
                                     <Link to={routes.flows}>
                                         <GitFork />
-                                        Flows
+                                        <span>所有任务流</span>
+                                        <span className="text-muted-foreground ml-auto text-xs group-data-[state=collapsed]:hidden">
+                                            {flows.length}
+                                        </span>
                                     </Link>
                                 </SidebarMenuButton>
                                 <SidebarMenuAction
@@ -232,7 +299,13 @@ export function MainSidebar() {
                     <SidebarGroup>
                         <SidebarGroupLabel className="flex items-center gap-2">
                             <Clock />
-                            Recent Flows
+                            最近任务流
+                            <Link
+                                className="text-muted-foreground hover:text-foreground ml-auto text-xs"
+                                to={routes.flows}
+                            >
+                                查看全部
+                            </Link>
                         </SidebarGroupLabel>
                         <SidebarGroupContent>
                             <SidebarMenu>
@@ -242,6 +315,8 @@ export function MainSidebar() {
                                         flow={flow}
                                         isFavorite={false}
                                         key={flow.id}
+                                        onDelete={setDeletingFlow}
+                                        onRename={handleRenameOpen}
                                         onToggleFavorite={addFavoriteFlow}
                                     />
                                 ))}
@@ -264,6 +339,8 @@ export function MainSidebar() {
                                         flow={flow}
                                         isFavorite
                                         key={flow.id}
+                                        onDelete={setDeletingFlow}
+                                        onRename={handleRenameOpen}
                                         onToggleFavorite={removeFavoriteFlow}
                                     />
                                 ))}
@@ -398,11 +475,78 @@ export function MainSidebar() {
                 type="file"
                 {...resourcesUpload.fileInputProps}
             />
+
+            <Dialog
+                onOpenChange={(open) => {
+                    if (!open && !isRenaming) {
+                        setRenamingFlow(null);
+                    }
+                }}
+                open={renamingFlow !== null}
+            >
+                <DialogContent className="sm:max-w-md">
+                    <form
+                        className="grid gap-4"
+                        onSubmit={(event) => void handleRenameSubmit(event)}
+                    >
+                        <DialogHeader>
+                            <DialogTitle>重命名任务流</DialogTitle>
+                            <DialogDescription>输入新的任务流名称。任务记录和运行结果不会改变。</DialogDescription>
+                        </DialogHeader>
+                        <div className="grid gap-2">
+                            <Label htmlFor="sidebar-flow-title">任务流名称</Label>
+                            <Input
+                                autoFocus
+                                disabled={isRenaming}
+                                id="sidebar-flow-title"
+                                onChange={(event) => setRenameTitle(event.target.value)}
+                                placeholder="输入任务流名称"
+                                value={renameTitle}
+                            />
+                        </div>
+                        <DialogFooter>
+                            <Button
+                                disabled={isRenaming}
+                                onClick={() => setRenamingFlow(null)}
+                                type="button"
+                                variant="outline"
+                            >
+                                取消
+                            </Button>
+                            <Button
+                                disabled={isRenaming || !renameTitle.trim()}
+                                type="submit"
+                            >
+                                {isRenaming && <Spinner variant="circle" />}
+                                保存
+                            </Button>
+                        </DialogFooter>
+                    </form>
+                </DialogContent>
+            </Dialog>
+
+            <ConfirmationDialog
+                cancelText="取消"
+                confirmText="删除"
+                description={
+                    deletingFlow
+                        ? `确定删除任务流“${deletingFlow.title}”吗？任务记录、任务容器和独立工作目录将一并删除，此操作无法撤销。`
+                        : undefined
+                }
+                handleConfirm={handleDeleteConfirm}
+                handleOpenChange={(open) => {
+                    if (!open) {
+                        setDeletingFlow(null);
+                    }
+                }}
+                isOpen={deletingFlow !== null}
+                title="删除任务流"
+            />
         </Sidebar>
     );
 }
 
-function FlowMenuItem({ activeFlowId, flow, isFavorite, onToggleFavorite }: FlowMenuItemProps) {
+function FlowMenuItem({ activeFlowId, flow, isFavorite, onDelete, onRename, onToggleFavorite }: FlowMenuItemProps) {
     return (
         <SidebarMenuItem>
             <SidebarMenuButton
@@ -416,18 +560,47 @@ function FlowMenuItem({ activeFlowId, flow, isFavorite, onToggleFavorite }: Flow
                     <span className="text-muted-foreground bg-background dark:bg-muted -my-0.5 -ml-0.5 h-5 min-w-5 shrink-0 rounded-md px-px py-0.5 text-center text-xs group-data-[state=collapsed]:hidden">
                         {flow.id}
                     </span>
-                    <span className="truncate">{flow.title}</span>
+                    <span
+                        className="truncate"
+                        data-pentagi-user-content="true"
+                    >
+                        {flow.title}
+                    </span>
                 </Link>
             </SidebarMenuButton>
-            <SidebarMenuAction
-                aria-label="Toggle favorite"
-                aria-pressed={isFavorite}
-                className="data-[state=open]:bg-accent rounded-sm"
-                onClick={() => onToggleFavorite(flow.id)}
-                showOnHover
-            >
-                <Star className={isFavorite ? 'fill-yellow-500 stroke-yellow-500' : ''} />
-            </SidebarMenuAction>
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <SidebarMenuAction
+                        aria-label="任务流操作"
+                        className="data-[state=open]:bg-accent rounded-sm"
+                        onClick={(event) => event.stopPropagation()}
+                        showOnHover
+                    >
+                        <Ellipsis />
+                    </SidebarMenuAction>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                    align="start"
+                    side="right"
+                >
+                    <DropdownMenuItem onSelect={() => onToggleFavorite(flow.id)}>
+                        <Star className={isFavorite ? 'fill-yellow-500 stroke-yellow-500' : ''} />
+                        {isFavorite ? '取消收藏' : '添加收藏'}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => onRename(flow)}>
+                        <PencilLine />
+                        重命名
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                        onSelect={() => onDelete(flow)}
+                        variant="destructive"
+                    >
+                        <Trash />
+                        删除
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
         </SidebarMenuItem>
     );
 }

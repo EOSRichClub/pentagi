@@ -264,22 +264,24 @@ type AgentConfig struct {
 
 // ProviderConfig represents the configuration for all agents
 type ProviderConfig struct {
-	Name           string            `json:"name,omitempty" yaml:"name,omitempty"`
-	Simple         *AgentConfig      `json:"simple,omitempty" yaml:"simple,omitempty"`
-	SimpleJSON     *AgentConfig      `json:"simple_json,omitempty" yaml:"simple_json,omitempty"`
-	PrimaryAgent   *AgentConfig      `json:"primary_agent,omitempty" yaml:"primary_agent,omitempty"`
-	Assistant      *AgentConfig      `json:"assistant,omitempty" yaml:"assistant,omitempty"`
-	Generator      *AgentConfig      `json:"generator,omitempty" yaml:"generator,omitempty"`
-	Refiner        *AgentConfig      `json:"refiner,omitempty" yaml:"refiner,omitempty"`
-	Adviser        *AgentConfig      `json:"adviser,omitempty" yaml:"adviser,omitempty"`
-	Reflector      *AgentConfig      `json:"reflector,omitempty" yaml:"reflector,omitempty"`
-	Searcher       *AgentConfig      `json:"searcher,omitempty" yaml:"searcher,omitempty"`
-	Enricher       *AgentConfig      `json:"enricher,omitempty" yaml:"enricher,omitempty"`
-	Coder          *AgentConfig      `json:"coder,omitempty" yaml:"coder,omitempty"`
-	Installer      *AgentConfig      `json:"installer,omitempty" yaml:"installer,omitempty"`
-	Pentester      *AgentConfig      `json:"pentester,omitempty" yaml:"pentester,omitempty"`
-	defaultOptions []llms.CallOption `json:"-" yaml:"-"`
-	rawConfig      []byte            `json:"-" yaml:"-"`
+	Name              string            `json:"name,omitempty" yaml:"name,omitempty"`
+	ModelServiceID    int64             `json:"model_service_id,omitempty" yaml:"model_service_id,omitempty"`
+	ModelCredentialID int64             `json:"model_credential_id,omitempty" yaml:"model_credential_id,omitempty"`
+	Simple            *AgentConfig      `json:"simple,omitempty" yaml:"simple,omitempty"`
+	SimpleJSON        *AgentConfig      `json:"simple_json,omitempty" yaml:"simple_json,omitempty"`
+	PrimaryAgent      *AgentConfig      `json:"primary_agent,omitempty" yaml:"primary_agent,omitempty"`
+	Assistant         *AgentConfig      `json:"assistant,omitempty" yaml:"assistant,omitempty"`
+	Generator         *AgentConfig      `json:"generator,omitempty" yaml:"generator,omitempty"`
+	Refiner           *AgentConfig      `json:"refiner,omitempty" yaml:"refiner,omitempty"`
+	Adviser           *AgentConfig      `json:"adviser,omitempty" yaml:"adviser,omitempty"`
+	Reflector         *AgentConfig      `json:"reflector,omitempty" yaml:"reflector,omitempty"`
+	Searcher          *AgentConfig      `json:"searcher,omitempty" yaml:"searcher,omitempty"`
+	Enricher          *AgentConfig      `json:"enricher,omitempty" yaml:"enricher,omitempty"`
+	Coder             *AgentConfig      `json:"coder,omitempty" yaml:"coder,omitempty"`
+	Installer         *AgentConfig      `json:"installer,omitempty" yaml:"installer,omitempty"`
+	Pentester         *AgentConfig      `json:"pentester,omitempty" yaml:"pentester,omitempty"`
+	defaultOptions    []llms.CallOption `json:"-" yaml:"-"`
+	rawConfig         []byte            `json:"-" yaml:"-"`
 }
 
 // Validate rejects universally-invalid agent values (negatives where a value is

@@ -18,6 +18,7 @@ export const makeAssistant = (
 ): AssistantFragmentFragment =>
     entity('Assistant', {
         createdAt: T,
+        flowControlEnabled: false,
         flowId: '5',
         id,
         provider: PROVIDER,

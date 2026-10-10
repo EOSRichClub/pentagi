@@ -1,0 +1,234 @@
+simple:
+  model: "glm-5.2"
+  temperature: 1.0
+  top_p: 0.95
+  n: 1
+  max_tokens: 8192
+  reasoning:
+    effort: max
+  extra_body:
+    thinking:
+      type: enabled
+      clear_thinking: false
+    tool_choice: auto
+  price:
+    input: 1.40
+    output: 4.40
+    cache_read: 0.26
+
+simple_json:
+  model: "glm-5.2"
+  temperature: 1.0
+  top_p: 0.95
+  n: 1
+  max_tokens: 8192
+  json: true
+  reasoning:
+    effort: max
+  extra_body:
+    thinking:
+      type: enabled
+      clear_thinking: false
+    tool_choice: auto
+  price:
+    input: 1.40
+    output: 4.40
+    cache_read: 0.26
+
+primary_agent:
+  model: "glm-5.2"
+  temperature: 1.0
+  top_p: 0.95
+  n: 1
+  max_tokens: 16384
+  reasoning:
+    effort: max
+  extra_body:
+    thinking:
+      type: enabled
+      clear_thinking: false
+    tool_choice: auto
+  price:
+    input: 1.40
+    output: 4.40
+    cache_read: 0.26
+
+assistant:
+  model: "glm-5.2"
+  temperature: 1.0
+  top_p: 0.95
+  n: 1
+  max_tokens: 16384
+  reasoning:
+    effort: max
+  extra_body:
+    thinking:
+      type: enabled
+      clear_thinking: false
+    tool_choice: auto
+  price:
+    input: 1.40
+    output: 4.40
+    cache_read: 0.26
+
+generator:
+  model: "glm-5.2"
+  temperature: 1.0
+  top_p: 0.95
+  n: 1
+  max_tokens: 32768
+  reasoning:
+    effort: max
+  extra_body:
+    thinking:
+      type: enabled
+      clear_thinking: false
+    tool_choice: auto
+  price:
+    input: 1.40
+    output: 4.40
+    cache_read: 0.26
+
+refiner:
+  model: "glm-5.2"
+  temperature: 1.0
+  top_p: 0.95
+  n: 1
+  max_tokens: 32768
+  reasoning:
+    effort: max
+  extra_body:
+    thinking:
+      type: enabled
+      clear_thinking: false
+    tool_choice: auto
+  price:
+    input: 1.40
+    output: 4.40
+    cache_read: 0.26
+
+adviser:
+  model: "glm-5.2"
+  temperature: 1.0
+  top_p: 0.95
+  n: 1
+  max_tokens: 16384
+  reasoning:
+    effort: max
+  extra_body:
+    thinking:
+      type: enabled
+      clear_thinking: false
+    tool_choice: auto
+  price:
+    input: 1.40
+    output: 4.40
+    cache_read: 0.26
+
+reflector:
+  model: "glm-5.2"
+  temperature: 1.0
+  top_p: 0.95
+  n: 1
+  max_tokens: 8192
+  reasoning:
+    effort: max
+  extra_body:
+    thinking:
+      type: enabled
+      clear_thinking: false
+    tool_choice: auto
+  price:
+    input: 1.40
+    output: 4.40
+    cache_read: 0.26
+
+searcher:
+  model: "glm-5.2"
+  temperature: 1.0
+  top_p: 0.95
+  n: 1
+  max_tokens: 8192
+  reasoning:
+    effort: max
+  extra_body:
+    thinking:
+      type: enabled
+      clear_thinking: false
+    tool_choice: auto
+  price:
+    input: 1.40
+    output: 4.40
+    cache_read: 0.26
+
+enricher:
+  model: "glm-5.2"
+  temperature: 1.0
+  top_p: 0.95
+  n: 1
+  max_tokens: 8192
+  reasoning:
+    effort: max
+  extra_body:
+    thinking:
+      type: enabled
+      clear_thinking: false
+    tool_choice: auto
+  price:
+    input: 1.40
+    output: 4.40
+    cache_read: 0.26
+
+coder:
+  model: "glm-5.2"
+  temperature: 1.0
+  top_p: 0.95
+  n: 1
+  max_tokens: 20480
+  reasoning:
+    effort: max
+  extra_body:
+    thinking:
+      type: enabled
+      clear_thinking: false
+    tool_choice: auto
+  price:
+    input: 1.40
+    output: 4.40
+    cache_read: 0.26
+
+installer:
+  model: "glm-5.2"
+  temperature: 1.0
+  top_p: 0.95
+  n: 1
+  max_tokens: 16384
+  reasoning:
+    effort: max
+  extra_body:
+    thinking:
+      type: enabled
+      clear_thinking: false
+    tool_choice: auto
+  price:
+    input: 1.40
+    output: 4.40
+    cache_read: 0.26
+
+pentester:
+  model: "glm-5.2"
+  temperature: 1.0
+  top_p: 0.95
+  n: 1
+  max_tokens: 16384
+  reasoning:
+    effort: max
+  extra_body:
+    thinking:
+      type: enabled
+      clear_thinking: false
+    tool_choice: auto
+  price:
+    input: 1.40
+    output: 4.40
+    cache_read: 0.26

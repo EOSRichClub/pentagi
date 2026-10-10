@@ -85,6 +85,7 @@ type dockerClient struct {
 	labels         map[string]string
 	insideEnv      []string
 	insideCertPath string
+	workerProxyEnv []string
 }
 
 type DockerClient interface {
@@ -92,6 +93,7 @@ type DockerClient interface {
 		flowID int64, config *container.Config, hostConfig *container.HostConfig) (database.Container, error)
 	StopContainer(ctx context.Context, containerID string, dbID int64) error
 	RemoveContainer(ctx context.Context, containerID string, dbID int64) error
+	PurgeContainer(ctx context.Context, containerName string) error
 	IsContainerRunning(ctx context.Context, containerID string) (bool, error)
 	ContainerExecCreate(ctx context.Context, container string, config client.ExecCreateOptions) (client.ExecCreateResult, error)
 	ContainerExecAttach(ctx context.Context, execID string, config client.ExecAttachOptions) (client.HijackedResponse, error)
@@ -207,6 +209,7 @@ func NewDockerClient(ctx context.Context, db database.Querier, cfg *config.Confi
 		labels:         cfg.TenantLabels(),
 		insideEnv:      cfg.WorkerDockerEnv(),
 		insideCertPath: cfg.WorkerDockerCertPath(),
+		workerProxyEnv: cfg.WorkerProxyEnv(),
 	}, nil
 }
 
@@ -351,6 +354,11 @@ func (dc *dockerClient) RunContainer(
 				fmt.Sprintf("%s:%s:ro", dc.insideCertPath, dc.insideCertPath))
 		}
 	}
+
+	// Give standard HTTP clients an explicit proxy so they preserve host names
+	// for proxy-side DNS resolution. A host-side transparent redirect remains in
+	// place for TCP tools that do not understand these variables.
+	config.Env = append(config.Env, dc.workerProxyEnv...)
 
 	// no-new-privileges was evaluated and deliberately not applied: the capability
 	// bounding set in tools.go Prepare already caps what any process can gain, so
@@ -752,6 +760,21 @@ func (dc *dockerClient) RemoveContainer(ctx context.Context, containerID string,
 	logger := dc.logger.WithContext(ctx).WithField("local_id", containerID)
 	logger.Info("removing container and associated resources")
 
+	// Named volumes are not removed by Docker's RemoveVolumes option (that only
+	// covers anonymous volumes). Capture the /work volume before deleting the
+	// container so a user deleting a flow does not leave its workspace behind.
+	workVolumeName := ""
+	if inspected, err := dc.client.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{}); err == nil {
+		for _, mountPoint := range inspected.Container.Mounts {
+			if mountPoint.Destination == WorkFolderPathInContainer && mountPoint.Type == mount.TypeVolume {
+				workVolumeName = mountPoint.Name
+				break
+			}
+		}
+	} else if !cerrdefs.IsNotFound(err) {
+		logger.WithError(err).Warn("failed to inspect container workspace before removal")
+	}
+
 	if err := dc.StopContainer(ctx, containerID, dbID); err != nil {
 		return fmt.Errorf("failed to stop container: %w", err)
 	}
@@ -769,6 +792,14 @@ func (dc *dockerClient) RemoveContainer(ctx context.Context, containerID string,
 		logger.WithError(err).Warn("container not found")
 	}
 
+	var volumeErr error
+	if workVolumeName != "" {
+		if _, err := dc.client.VolumeRemove(ctx, workVolumeName, client.VolumeRemoveOptions{Force: true}); err != nil &&
+			!cerrdefs.IsNotFound(err) {
+			volumeErr = fmt.Errorf("failed to remove workspace volume '%s': %w", workVolumeName, err)
+		}
+	}
+
 	_, err := dc.db.UpdateContainerStatus(ctx, database.UpdateContainerStatusParams{
 		Status: database.ContainerStatusDeleted,
 		ID:     dbID,
@@ -778,6 +809,23 @@ func (dc *dockerClient) RemoveContainer(ctx context.Context, containerID string,
 	}
 
 	logger.Info("container removed")
+
+	return volumeErr
+}
+
+// PurgeContainer removes a flow container by its deterministic name and also
+// removes its named /work volume. It is used when a flow is already finished or
+// failed and therefore no longer has an in-memory worker to release.
+func (dc *dockerClient) PurgeContainer(ctx context.Context, containerName string) error {
+	if err := dc.removeContainerByName(ctx, containerName); err != nil {
+		return err
+	}
+
+	volumeName := containerName + WorkerVolumeNameSuffix
+	if _, err := dc.client.VolumeRemove(ctx, volumeName, client.VolumeRemoveOptions{Force: true}); err != nil &&
+		!cerrdefs.IsNotFound(err) {
+		return fmt.Errorf("failed to remove workspace volume '%s': %w", volumeName, err)
+	}
 
 	return nil
 }
@@ -909,6 +957,10 @@ func (dc *dockerClient) ContainerExecCreate(
 	container string,
 	config client.ExecCreateOptions,
 ) (client.ExecCreateResult, error) {
+	// Execs in pre-existing sandboxes need the same explicit proxy variables as
+	// newly created containers. Appending here also prevents a resumed flow from
+	// reverting to local DNS/direct-style behavior after an egress migration.
+	config.Env = append(config.Env, dc.workerProxyEnv...)
 	return dc.client.ExecCreate(ctx, container, config)
 }
 

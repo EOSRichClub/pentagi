@@ -9,6 +9,49 @@ const { mutate, navigate } = vi.hoisted(() => ({ mutate: vi.fn(), navigate: vi.f
 
 const state = vi.hoisted(() => ({ params: new URLSearchParams(), providerId: 'new' }));
 
+const modelServiceState = vi.hoisted(() => ({
+    services: [
+        {
+            baseUrl: 'https://api.openai.test/v1',
+            builtin: true,
+            credentials: [
+                {
+                    enabled: true,
+                    id: 101,
+                    masked: 'sk-••••••001',
+                    name: 'OpenAI 测试密钥',
+                    remark: '',
+                    serviceId: 11,
+                    source: 'user',
+                    usageCount: 0,
+                },
+            ],
+            id: 11,
+            name: 'OpenAI 主服务',
+            providerType: 'openai',
+        },
+        {
+            baseUrl: 'https://api.anthropic.test',
+            builtin: true,
+            credentials: [
+                {
+                    enabled: true,
+                    id: 102,
+                    masked: 'sk-••••••002',
+                    name: 'Anthropic 测试密钥',
+                    remark: '',
+                    serviceId: 12,
+                    source: 'user',
+                    usageCount: 0,
+                },
+            ],
+            id: 12,
+            name: 'Anthropic 主服务',
+            providerType: 'anthropic',
+        },
+    ],
+}));
+
 const setSearch = (search: string) => {
     state.params = new URLSearchParams(search);
 };
@@ -90,6 +133,11 @@ vi.mock('@/hooks/use-breakpoint', () => ({
     useBreakpoint: () => ({ isDesktop: true, isMobile: false }),
 }));
 
+vi.mock('@/lib/model-services', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/lib/model-services')>()),
+    loadModelServices: () => Promise.resolve(modelServiceState.services),
+}));
+
 // AppHeader pulls in SidebarTrigger (needs a SidebarProvider context); stub the
 // whole family so the guard effect under test renders without that scaffolding.
 vi.mock('@/components/layouts/app/app-header', () => {
@@ -130,52 +178,55 @@ beforeEach(() => {
 });
 
 describe('SettingsProvider create-form type guards', () => {
-    it('bounces ?type= for a disabled type', () => {
+    it('bounces ?type= for a disabled type', async () => {
         setSearch('type=minimax');
         render(<SettingsProvider />);
 
-        expect(navigate).toHaveBeenCalledWith(routes.settings.providers, { replace: true });
+        await waitFor(() => expect(navigate).toHaveBeenCalledWith(routes.settings.providers, { replace: true }));
     });
 
-    it('bounces ?type= for an unknown type', () => {
+    it('bounces ?type= for an unknown type', async () => {
         setSearch('type=not-a-real-provider');
         render(<SettingsProvider />);
 
-        expect(navigate).toHaveBeenCalledWith(routes.settings.providers, { replace: true });
+        await waitFor(() => expect(navigate).toHaveBeenCalledWith(routes.settings.providers, { replace: true }));
     });
 
-    it('bounces ?id= cloning a provider whose type is disabled', () => {
+    it('bounces ?id= cloning a provider whose type is disabled', async () => {
         setSearch('id=disabled-1');
         render(<SettingsProvider />);
 
-        expect(navigate).toHaveBeenCalledWith(routes.settings.providers, { replace: true });
+        await waitFor(() => expect(navigate).toHaveBeenCalledWith(routes.settings.providers, { replace: true }));
     });
 
-    it('renders the create form for an enabled ?type=', () => {
+    it('renders the create form for an enabled ?type=', async () => {
         setSearch('type=anthropic');
         render(<SettingsProvider />);
 
+        await waitFor(() => expect(screen.getByRole('combobox', { name: '模型服务' })).toBeEnabled());
         expect(navigate).not.toHaveBeenCalled();
     });
 
     // cache-and-network means an error can arrive with cached data still present; the form must
     // survive it rather than flip to the full-page error screen.
-    it('keeps the form on a refetch error while cached data is present', () => {
+    it('keeps the form on a refetch error while cached data is present', async () => {
         setSearch('type=anthropic');
         queryResult.error = new Error('e2e induced refetch failure');
         render(<SettingsProvider />);
 
+        await waitFor(() => expect(screen.getByRole('combobox', { name: '模型服务' })).toBeEnabled());
         expect(screen.queryByText('Error loading provider data')).not.toBeInTheDocument();
         expect(navigate).not.toHaveBeenCalled();
     });
 
     // The loading branch runs before the error branch, so it needs the same guard: a background
     // refetch reports loading:true with cached data and must not blank the form to the spinner.
-    it('keeps the form on a background refetch while cached data is present', () => {
+    it('keeps the form on a background refetch while cached data is present', async () => {
         setSearch('type=anthropic');
         queryResult.loading = true;
         render(<SettingsProvider />);
 
+        await waitFor(() => expect(screen.getByRole('combobox', { name: '模型服务' })).toBeEnabled());
         expect(screen.queryByText('Loading provider data...')).not.toBeInTheDocument();
         expect(navigate).not.toHaveBeenCalled();
     });
@@ -188,12 +239,12 @@ describe('SettingsProvider create-form type guards', () => {
 
     const temperatureInput = () => screen.getByLabelText('Temperature') as HTMLInputElement;
 
-    it('preserves an in-flight agent edit on the create form across a background refetch', () => {
+    it('preserves an in-flight agent edit on the create form across a background refetch', async () => {
         setSearch('type=openai');
         const { rerender } = render(<SettingsProvider />);
 
         expandAgent();
-        expect(temperatureInput().value).toBe('0.7');
+        await waitFor(() => expect(temperatureInput().value).toBe('0.7'));
 
         fireEvent.change(temperatureInput(), { target: { value: '1.5' } });
 
@@ -207,34 +258,37 @@ describe('SettingsProvider create-form type guards', () => {
         expect(temperatureInput().value).toBe('1.5');
     });
 
-    it('still re-seeds the agents when the type changes mid-edit', () => {
+    it('still re-seeds the agents when the type changes mid-edit', async () => {
         setSearch('type=openai');
         const { rerender } = render(<SettingsProvider />);
 
         expandAgent();
+        await waitFor(() => expect(temperatureInput().value).toBe('0.7'));
         fireEvent.change(temperatureInput(), { target: { value: '1.5' } });
 
         setSearch('type=anthropic');
         rerender(<SettingsProvider />);
         expandAgent();
 
-        expect(temperatureInput().value).toBe('0.2');
+        await waitFor(() => expect(temperatureInput().value).toBe('0.2'));
     });
 
-    it('preserves an in-flight edit across a background refetch', () => {
+    it('preserves an in-flight edit across a background refetch', async () => {
         state.providerId = 'edit-1';
         const { rerender } = render(<SettingsProvider />);
 
-        const nameInput = screen.getByPlaceholderText('Enter provider name') as HTMLInputElement;
+        const nameInput = screen.getByPlaceholderText('例如：硅基流动-主账号-代码模型') as HTMLInputElement;
 
-        expect(nameInput.value).toBe('Persisted Name');
+        await waitFor(() => expect(nameInput.value).toBe('Persisted Name'));
 
         fireEvent.change(nameInput, { target: { value: 'My Unsaved Edit' } });
 
         queryResult.data = { settingsProviders };
         rerender(<SettingsProvider />);
 
-        expect((screen.getByPlaceholderText('Enter provider name') as HTMLInputElement).value).toBe('My Unsaved Edit');
+        expect((screen.getByPlaceholderText('例如：硅基流动-主账号-代码模型') as HTMLInputElement).value).toBe(
+            'My Unsaved Edit',
+        );
     });
 });
 
@@ -243,10 +297,18 @@ describe('SettingsProvider save feedback', () => {
 
     const saveButton = () => screen.getByRole('button', { name: 'Create' });
 
-    const renderCreateForm = () => {
+    const renderCreateForm = async () => {
         setSearch('type=openai');
         render(<SettingsProvider />);
-        fireEvent.change(screen.getByPlaceholderText('Enter provider name'), { target: { value: 'My Provider' } });
+        await waitFor(() =>
+            expect(screen.getByRole('combobox', { name: '模型服务' })).toHaveTextContent('OpenAI 主服务'),
+        );
+        await waitFor(() =>
+            expect(screen.getByRole('combobox', { name: 'API 密钥' })).toHaveTextContent('OpenAI 测试密钥'),
+        );
+        fireEvent.change(screen.getByPlaceholderText('例如：硅基流动-主账号-代码模型'), {
+            target: { value: 'My Provider' },
+        });
     };
 
     const typeInvalidExtraBody = () => {
@@ -256,7 +318,7 @@ describe('SettingsProvider save feedback', () => {
     };
 
     it('toasts an agent-level error raised inside a collapsed panel', async () => {
-        renderCreateForm();
+        await renderCreateForm();
         typeInvalidExtraBody();
 
         expect(screen.queryByLabelText('Extra Body (JSON)')).not.toBeInTheDocument();
@@ -269,7 +331,7 @@ describe('SettingsProvider save feedback', () => {
     });
 
     it('toasts again when the same invalid form is submitted twice', async () => {
-        renderCreateForm();
+        await renderCreateForm();
         typeInvalidExtraBody();
 
         fireEvent.click(saveButton());
@@ -280,7 +342,7 @@ describe('SettingsProvider save feedback', () => {
     });
 
     it('runs the create mutation when the form is valid', async () => {
-        renderCreateForm();
+        await renderCreateForm();
 
         fireEvent.click(saveButton());
 

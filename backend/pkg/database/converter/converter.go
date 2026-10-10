@@ -137,14 +137,15 @@ func ConvertAssistant(assistant database.Assistant) *model.Assistant {
 		Type: model.ProviderType(assistant.ModelProviderType),
 	}
 	return &model.Assistant{
-		ID:        assistant.ID,
-		Title:     assistant.Title,
-		Status:    model.StatusType(assistant.Status),
-		Provider:  provider,
-		FlowID:    assistant.FlowID,
-		UseAgents: assistant.UseAgents,
-		CreatedAt: assistant.CreatedAt.Time,
-		UpdatedAt: assistant.UpdatedAt.Time,
+		ID:                 assistant.ID,
+		Title:              assistant.Title,
+		Status:             model.StatusType(assistant.Status),
+		Provider:           provider,
+		FlowID:             assistant.FlowID,
+		UseAgents:          assistant.UseAgents,
+		FlowControlEnabled: assistant.FlowControlEnabled,
+		CreatedAt:          assistant.CreatedAt.Time,
+		UpdatedAt:          assistant.UpdatedAt.Time,
 	}
 }
 
@@ -643,19 +644,21 @@ func ConvertProviderConfigToGqlModel(cfg *pconfig.ProviderConfig) *model.AgentsC
 	}
 
 	return &model.AgentsConfig{
-		Simple:       ConvertAgentConfigToGqlModel(cfg.Simple),
-		SimpleJSON:   ConvertAgentConfigToGqlModel(cfg.SimpleJSON),
-		PrimaryAgent: ConvertAgentConfigToGqlModel(cfg.PrimaryAgent),
-		Assistant:    ConvertAgentConfigToGqlModel(cfg.Assistant),
-		Generator:    ConvertAgentConfigToGqlModel(cfg.Generator),
-		Refiner:      ConvertAgentConfigToGqlModel(cfg.Refiner),
-		Adviser:      ConvertAgentConfigToGqlModel(cfg.Adviser),
-		Reflector:    ConvertAgentConfigToGqlModel(cfg.Reflector),
-		Searcher:     ConvertAgentConfigToGqlModel(cfg.Searcher),
-		Enricher:     ConvertAgentConfigToGqlModel(cfg.Enricher),
-		Coder:        ConvertAgentConfigToGqlModel(cfg.Coder),
-		Installer:    ConvertAgentConfigToGqlModel(cfg.Installer),
-		Pentester:    ConvertAgentConfigToGqlModel(cfg.Pentester),
+		ModelServiceID:    int64PtrIfNonZero(cfg.ModelServiceID),
+		ModelCredentialID: int64PtrIfNonZero(cfg.ModelCredentialID),
+		Simple:            ConvertAgentConfigToGqlModel(cfg.Simple),
+		SimpleJSON:        ConvertAgentConfigToGqlModel(cfg.SimpleJSON),
+		PrimaryAgent:      ConvertAgentConfigToGqlModel(cfg.PrimaryAgent),
+		Assistant:         ConvertAgentConfigToGqlModel(cfg.Assistant),
+		Generator:         ConvertAgentConfigToGqlModel(cfg.Generator),
+		Refiner:           ConvertAgentConfigToGqlModel(cfg.Refiner),
+		Adviser:           ConvertAgentConfigToGqlModel(cfg.Adviser),
+		Reflector:         ConvertAgentConfigToGqlModel(cfg.Reflector),
+		Searcher:          ConvertAgentConfigToGqlModel(cfg.Searcher),
+		Enricher:          ConvertAgentConfigToGqlModel(cfg.Enricher),
+		Coder:             ConvertAgentConfigToGqlModel(cfg.Coder),
+		Installer:         ConvertAgentConfigToGqlModel(cfg.Installer),
+		Pentester:         ConvertAgentConfigToGqlModel(cfg.Pentester),
 	}
 }
 
@@ -748,19 +751,21 @@ func ConvertAgentsConfigFromGqlModel(cfg *model.AgentsConfig) *pconfig.ProviderC
 	}
 
 	pc := &pconfig.ProviderConfig{
-		Simple:       ConvertAgentConfigFromGqlModel(cfg.Simple),
-		SimpleJSON:   ConvertAgentConfigFromGqlModel(cfg.SimpleJSON),
-		PrimaryAgent: ConvertAgentConfigFromGqlModel(cfg.PrimaryAgent),
-		Assistant:    ConvertAgentConfigFromGqlModel(cfg.Assistant),
-		Generator:    ConvertAgentConfigFromGqlModel(cfg.Generator),
-		Refiner:      ConvertAgentConfigFromGqlModel(cfg.Refiner),
-		Adviser:      ConvertAgentConfigFromGqlModel(cfg.Adviser),
-		Reflector:    ConvertAgentConfigFromGqlModel(cfg.Reflector),
-		Searcher:     ConvertAgentConfigFromGqlModel(cfg.Searcher),
-		Enricher:     ConvertAgentConfigFromGqlModel(cfg.Enricher),
-		Coder:        ConvertAgentConfigFromGqlModel(cfg.Coder),
-		Installer:    ConvertAgentConfigFromGqlModel(cfg.Installer),
-		Pentester:    ConvertAgentConfigFromGqlModel(cfg.Pentester),
+		ModelServiceID:    int64Value(cfg.ModelServiceID),
+		ModelCredentialID: int64Value(cfg.ModelCredentialID),
+		Simple:            ConvertAgentConfigFromGqlModel(cfg.Simple),
+		SimpleJSON:        ConvertAgentConfigFromGqlModel(cfg.SimpleJSON),
+		PrimaryAgent:      ConvertAgentConfigFromGqlModel(cfg.PrimaryAgent),
+		Assistant:         ConvertAgentConfigFromGqlModel(cfg.Assistant),
+		Generator:         ConvertAgentConfigFromGqlModel(cfg.Generator),
+		Refiner:           ConvertAgentConfigFromGqlModel(cfg.Refiner),
+		Adviser:           ConvertAgentConfigFromGqlModel(cfg.Adviser),
+		Reflector:         ConvertAgentConfigFromGqlModel(cfg.Reflector),
+		Searcher:          ConvertAgentConfigFromGqlModel(cfg.Searcher),
+		Enricher:          ConvertAgentConfigFromGqlModel(cfg.Enricher),
+		Coder:             ConvertAgentConfigFromGqlModel(cfg.Coder),
+		Installer:         ConvertAgentConfigFromGqlModel(cfg.Installer),
+		Pentester:         ConvertAgentConfigFromGqlModel(cfg.Pentester),
 	}
 
 	rawConfig, err := json.Marshal(pc)
@@ -771,6 +776,20 @@ func ConvertAgentsConfigFromGqlModel(cfg *model.AgentsConfig) *pconfig.ProviderC
 	pc.SetRawConfig(rawConfig)
 
 	return pc
+}
+
+func int64PtrIfNonZero(value int64) *int64 {
+	if value == 0 {
+		return nil
+	}
+	return &value
+}
+
+func int64Value(value *int64) int64 {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 func ConvertAgentConfigFromGqlModel(ac *model.AgentConfig) *pconfig.AgentConfig {

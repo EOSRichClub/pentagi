@@ -73,6 +73,10 @@ func (m *contextAwareMockDockerClient) StopContainer(_ context.Context, _ string
 func (m *contextAwareMockDockerClient) RemoveContainer(_ context.Context, _ string, _ int64) error {
 	return nil
 }
+
+func (m *contextAwareMockDockerClient) PurgeContainer(_ context.Context, _ string) error {
+	return nil
+}
 func (m *contextAwareMockDockerClient) IsContainerRunning(_ context.Context, _ string) (bool, error) {
 	return m.isRunning, nil
 }

@@ -22,6 +22,22 @@
 }
 
 @font-face {
+    font-family: 'Noto Sans SC';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('/fonts/NotoSansSC-Regular.otf') format('opentype');
+}
+
+@font-face {
+    font-family: 'Noto Sans SC';
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url('/fonts/NotoSansSC-Bold.otf') format('opentype');
+}
+
+@font-face {
     font-family: 'Inter';
     font-style: italic;
     font-weight: 400;
@@ -331,8 +347,8 @@
         --editor-syntax-attr: oklch(0.524 0.116 76.9);
         --editor-syntax-symbol: oklch(0.527 0.193 263.2);
         --editor-syntax-class: oklch(0.523 0.138 76.2);
-        --font-sans: Inter, 'Inter Fallback', sans-serif;
-        --font-serif: Inter, 'Inter Fallback', serif;
+        --font-sans: Inter, 'Noto Sans SC', 'Inter Fallback', sans-serif;
+        --font-serif: Inter, 'Noto Sans SC', 'Inter Fallback', serif;
         --font-mono: 'Roboto Mono', monospace;
         --radius: 0.375rem;
         --shadow-x: 0;
@@ -403,8 +419,8 @@
         --editor-syntax-attr: oklch(0.727 0.095 63.8);
         --editor-syntax-symbol: oklch(0.728 0.121 245.6);
         --editor-syntax-class: oklch(0.826 0.097 81.6);
-        --font-sans: Inter, 'Inter Fallback', sans-serif;
-        --font-serif: Inter, 'Inter Fallback', serif;
+        --font-sans: Inter, 'Noto Sans SC', 'Inter Fallback', sans-serif;
+        --font-serif: Inter, 'Noto Sans SC', 'Inter Fallback', serif;
         --font-mono: 'Roboto Mono', monospace;
         --radius: 0.5rem;
         --shadow-x: 0;

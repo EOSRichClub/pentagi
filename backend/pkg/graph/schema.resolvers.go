@@ -201,12 +201,10 @@ func (r *mutationResolver) DeleteFlow(ctx context.Context, flowID int64) (model.
 		"flow": flowID,
 	}).Debug("delete flow")
 
-	// Goes through the controller rather than GetFlow + worker.Finish: only
-	// FinishFlow evicts the worker from the in-memory map. A worker left behind
-	// for a soft-deleted flow leaks for the process lifetime, still shows up in
-	// ListFlows, and can be finished a second time by a concurrent caller.
-	if err := r.Controller.FinishFlow(ctx, flowID); err != nil &&
-		!errors.Is(err, controller.ErrFlowNotFound) {
+	// PurgeFlow works for both loaded and already-finished flows. It removes the
+	// worker container and its named /work volume before the database row is
+	// soft-deleted, so deletion cannot leave invisible Docker resources behind.
+	if err := r.Controller.PurgeFlow(ctx, flowID); err != nil {
 		return model.ResultTypeError, err
 	}
 
@@ -281,7 +279,7 @@ func (r *mutationResolver) RenameFlow(ctx context.Context, flowID int64, title s
 }
 
 // CreateAssistant is the resolver for the createAssistant field.
-func (r *mutationResolver) CreateAssistant(ctx context.Context, flowID int64, modelProvider string, input string, useAgents bool, resourceIds []int64) (*model.FlowAssistant, error) {
+func (r *mutationResolver) CreateAssistant(ctx context.Context, flowID int64, modelProvider string, input string, useAgents bool, flowControlEnabled bool, resourceIds []int64) (*model.FlowAssistant, error) {
 	var (
 		err error
 		uid int64
@@ -333,7 +331,9 @@ func (r *mutationResolver) CreateAssistant(ctx context.Context, flowID int64, mo
 	}
 	prvtype := prv.Type()
 
-	aw, err := r.Controller.CreateAssistant(ctx, uid, flowID, input, useAgents, prvname, prvtype, nil, dbResources)
+	aw, err := r.Controller.CreateAssistant(
+		ctx, uid, flowID, input, useAgents, flowControlEnabled, prvname, prvtype, nil, dbResources,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -357,7 +357,7 @@ func (r *mutationResolver) CreateAssistant(ctx context.Context, flowID int64, mo
 }
 
 // CallAssistant is the resolver for the callAssistant field.
-func (r *mutationResolver) CallAssistant(ctx context.Context, flowID int64, assistantID int64, input string, useAgents bool, resourceIds []int64) (model.ResultType, error) {
+func (r *mutationResolver) CallAssistant(ctx context.Context, flowID int64, assistantID int64, input string, useAgents bool, flowControlEnabled bool, resourceIds []int64) (model.ResultType, error) {
 	uid, err := validatePermissionWithFlowID(ctx, "assistants.edit", flowID, r.DB)
 	if err != nil {
 		return model.ResultTypeError, err
@@ -391,7 +391,7 @@ func (r *mutationResolver) CallAssistant(ctx context.Context, flowID int64, assi
 		return model.ResultTypeError, err
 	}
 
-	if err := aw.PutInput(ctx, input, useAgents, dbResources); err != nil {
+	if err := aw.PutInput(ctx, input, useAgents, flowControlEnabled, dbResources); err != nil {
 		return model.ResultTypeError, err
 	}
 
@@ -474,7 +474,7 @@ func (r *mutationResolver) DeleteAssistant(ctx context.Context, flowID int64, as
 }
 
 // TestAgent is the resolver for the testAgent field.
-func (r *mutationResolver) TestAgent(ctx context.Context, typeArg model.ProviderType, agentType model.AgentConfigType, agent model.AgentConfig) (*model.AgentTestResult, error) {
+func (r *mutationResolver) TestAgent(ctx context.Context, typeArg model.ProviderType, agentType model.AgentConfigType, agent model.AgentConfig, modelServiceID *int64, modelCredentialID *int64) (*model.AgentTestResult, error) {
 	uid, _, err := validatePermission(ctx, "settings.providers.view")
 	if err != nil {
 		return nil, err
@@ -488,7 +488,14 @@ func (r *mutationResolver) TestAgent(ctx context.Context, typeArg model.Provider
 	cfg := converter.ConvertAgentConfigFromGqlModel(&agent)
 	prvtype := provider.ProviderType(typeArg)
 	atype := pconfig.ProviderOptionsType(agentType)
-	result, err := r.ProvidersCtrl.TestAgent(ctx, prvtype, atype, cfg)
+	var serviceID, credentialID int64
+	if modelServiceID != nil {
+		serviceID = *modelServiceID
+	}
+	if modelCredentialID != nil {
+		credentialID = *modelCredentialID
+	}
+	result, err := r.ProvidersCtrl.TestAgent(ctx, uid, prvtype, atype, cfg, serviceID, credentialID)
 	if err != nil {
 		return nil, err
 	}
@@ -510,7 +517,7 @@ func (r *mutationResolver) TestProvider(ctx context.Context, typeArg model.Provi
 
 	cfg := converter.ConvertAgentsConfigFromGqlModel(&agents)
 	prvtype := provider.ProviderType(typeArg)
-	result, err := r.ProvidersCtrl.TestProvider(ctx, prvtype, cfg)
+	result, err := r.ProvidersCtrl.TestProvider(ctx, uid, prvtype, cfg)
 	if err != nil {
 		return nil, err
 	}

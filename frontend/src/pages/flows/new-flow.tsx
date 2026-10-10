@@ -77,6 +77,7 @@ function NewFlow() {
                         </Tabs>
                         <FlowForm
                             defaultValues={{
+                                flowControlEnabled: false,
                                 providerName: selectedProvider?.name ?? '',
                                 useAgents: shouldUseAgents,
                             }}

@@ -1016,6 +1016,7 @@ func (fw *flowWorker) worker() {
 
 					// anyway there need to set flow status to Waiting new user input even an error happened
 					_ = fw.SetStatus(fw.ctx, database.FlowStatusWaiting)
+					fw.putStopNotice(task, err)
 				}
 			} else {
 				getLogger(input, task).Info("task continued successfully")
@@ -1034,10 +1035,39 @@ func (fw *flowWorker) worker() {
 
 				// anyway there need to set flow status to Waiting new user input even an error happened
 				_ = fw.SetStatus(fw.ctx, database.FlowStatusWaiting)
+				fw.putStopNotice(task, err)
 			}
 		} else {
 			getLogger(flin.input, task).Info("user input processed")
 		}
+	}
+}
+
+func (fw *flowWorker) putStopNotice(task TaskWorker, taskErr error) {
+	message, result := buildFlowStopNotice(taskErr)
+	var err error
+	if task == nil {
+		_, err = fw.flowCtx.MsgLog.PutFlowMsgResult(
+			fw.ctx,
+			database.MsglogTypeAdvice,
+			"",
+			message,
+			result,
+			database.MsglogResultFormatMarkdown,
+		)
+	} else {
+		_, err = fw.flowCtx.MsgLog.PutTaskMsgResult(
+			fw.ctx,
+			database.MsglogTypeAdvice,
+			task.GetTaskID(),
+			"",
+			message,
+			result,
+			database.MsglogResultFormatMarkdown,
+		)
+	}
+	if err != nil {
+		fw.logger.WithError(err).Error("failed to publish task stop reason")
 	}
 }
 

@@ -583,8 +583,8 @@ func (s *FlowService) DeleteFlow(c *gin.Context) {
 		return
 	}
 
-	if err := s.fc.FinishFlow(c, int64(flow.ID)); err != nil {
-		logger.FromContext(c).WithError(err).Errorf("error stopping flow")
+	if err := s.fc.PurgeFlow(c, int64(flow.ID)); err != nil {
+		logger.FromContext(c).WithError(err).Errorf("error purging flow resources")
 		response.Error(c, response.ErrInternal, err)
 		return
 	}

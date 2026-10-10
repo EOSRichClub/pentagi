@@ -59,6 +59,7 @@ type Assistant struct {
 	TraceID            *string          `form:"trace_id" json:"trace_id" validate:"max=70,required" gorm:"type:TEXT;NOT NULL"`
 	ToolCallIDTemplate string           `form:"tool_call_id_template" json:"tool_call_id_template" validate:"max=70,required" gorm:"type:TEXT;NOT NULL"`
 	UseAgents          bool             `form:"use_agents" json:"use_agents" validate:"omitempty" gorm:"type:BOOLEAN;NOT NULL;default:false"`
+	FlowControlEnabled bool             `form:"flow_control_enabled" json:"flow_control_enabled" validate:"omitempty" gorm:"type:BOOLEAN;NOT NULL;default:false"`
 	CreatedAt          time.Time        `form:"created_at,omitempty" json:"created_at,omitempty" validate:"omitempty" gorm:"type:TIMESTAMPTZ;default:CURRENT_TIMESTAMP"`
 	UpdatedAt          time.Time        `form:"updated_at,omitempty" json:"updated_at,omitempty" validate:"omitempty" gorm:"type:TIMESTAMPTZ;default:CURRENT_TIMESTAMP"`
 	DeletedAt          *time.Time       `form:"deleted_at,omitempty" json:"deleted_at,omitempty" validate:"omitempty" sql:"index" gorm:"type:TIMESTAMPTZ"`
@@ -84,11 +85,12 @@ func (a Assistant) Validate(db *gorm.DB) {
 // CreateAssistant is model to contain assistant creation paylaod
 // nolint:lll
 type CreateAssistant struct {
-	Input       string           `form:"input" json:"input" validate:"required" example:"user input for running assistant"`
-	Provider    string           `form:"provider" json:"provider" validate:"required" example:"openai"`
-	UseAgents   bool             `form:"use_agents" json:"use_agents" validate:"omitempty" example:"true"`
-	Functions   *tools.Functions `form:"functions,omitempty" json:"functions,omitempty" validate:"omitempty,valid"`
-	ResourceIDs []uint64         `form:"resource_ids,omitempty" json:"resource_ids,omitempty" validate:"omitempty" swaggertype:"array,integer"`
+	Input              string           `form:"input" json:"input" validate:"required" example:"user input for running assistant"`
+	Provider           string           `form:"provider" json:"provider" validate:"required" example:"openai"`
+	UseAgents          bool             `form:"use_agents" json:"use_agents" validate:"omitempty" example:"true"`
+	FlowControlEnabled bool             `form:"flow_control_enabled" json:"flow_control_enabled" validate:"omitempty" example:"false"`
+	Functions          *tools.Functions `form:"functions,omitempty" json:"functions,omitempty" validate:"omitempty,valid"`
+	ResourceIDs        []uint64         `form:"resource_ids,omitempty" json:"resource_ids,omitempty" validate:"omitempty" swaggertype:"array,integer"`
 }
 
 // Valid is function to control input/output data
@@ -99,10 +101,11 @@ func (ca CreateAssistant) Valid() error {
 // PatchAssistant is model to contain assistant patching paylaod
 // nolint:lll
 type PatchAssistant struct {
-	Action      string   `form:"action" json:"action" validate:"required,oneof=stop input" enums:"stop,input" default:"stop"`
-	Input       *string  `form:"input,omitempty" json:"input,omitempty" validate:"required_if=Action input" example:"user input for waiting assistant"`
-	UseAgents   bool     `form:"use_agents" json:"use_agents" validate:"omitempty" example:"true"`
-	ResourceIDs []uint64 `form:"resource_ids,omitempty" json:"resource_ids,omitempty" validate:"omitempty" swaggertype:"array,integer"`
+	Action             string   `form:"action" json:"action" validate:"required,oneof=stop input" enums:"stop,input" default:"stop"`
+	Input              *string  `form:"input,omitempty" json:"input,omitempty" validate:"required_if=Action input" example:"user input for waiting assistant"`
+	UseAgents          bool     `form:"use_agents" json:"use_agents" validate:"omitempty" example:"true"`
+	FlowControlEnabled bool     `form:"flow_control_enabled" json:"flow_control_enabled" validate:"omitempty" example:"false"`
+	ResourceIDs        []uint64 `form:"resource_ids,omitempty" json:"resource_ids,omitempty" validate:"omitempty" swaggertype:"array,integer"`
 }
 
 // Valid is function to control input/output data

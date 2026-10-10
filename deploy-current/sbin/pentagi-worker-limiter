@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -u
+
+apply_limits() {
+  local name="$1"
+  case "$name" in
+    pentagi-terminal-*)
+      docker update --pids-limit 128 --cpus 2 --memory 3g --memory-swap 4g "$name" >/dev/null 2>&1 || true
+      ;;
+  esac
+}
+
+while true; do
+  while IFS= read -r name; do
+    [ -n "$name" ] && apply_limits "$name"
+  done < <(docker ps -a --format '{{.Names}}' 2>/dev/null)
+
+  docker events \
+    --filter type=container \
+    --filter event=create \
+    --filter event=start \
+    --format '{{.Actor.Attributes.name}}' 2>/dev/null |
+  while IFS= read -r name; do
+    [ -n "$name" ] && apply_limits "$name"
+  done
+
+  sleep 2
+done

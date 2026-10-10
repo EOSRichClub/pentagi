@@ -51,6 +51,8 @@ const agentsConfig = (model?: string): AgentsConfigFragmentFragment =>
         enricher: agentConfig(model),
         generator: agentConfig(model),
         installer: agentConfig(model),
+        modelCredentialId: null,
+        modelServiceId: null,
         pentester: agentConfig(model),
         primaryAgent: agentConfig(model),
         refiner: agentConfig(model),

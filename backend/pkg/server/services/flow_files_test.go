@@ -1020,6 +1020,7 @@ func (f *fakeDockerClient) RunContainer(_ context.Context, _ string, _ database.
 }
 func (f *fakeDockerClient) StopContainer(_ context.Context, _ string, _ int64) error   { return nil }
 func (f *fakeDockerClient) RemoveContainer(_ context.Context, _ string, _ int64) error { return nil }
+func (f *fakeDockerClient) PurgeContainer(_ context.Context, _ string) error           { return nil }
 func (f *fakeDockerClient) IsContainerRunning(_ context.Context, _ string) (bool, error) {
 	return f.running, f.runningErr
 }

@@ -48,23 +48,23 @@ const statusConfig: Record<
     { label: string; variant: 'default' | 'destructive' | 'outline' | 'secondary' }
 > = {
     [StatusType.Created]: {
-        label: 'Created',
+        label: '已创建',
         variant: 'outline',
     },
     [StatusType.Failed]: {
-        label: 'Failed',
+        label: '失败',
         variant: 'destructive',
     },
     [StatusType.Finished]: {
-        label: 'Finished',
+        label: '已结束',
         variant: 'secondary',
     },
     [StatusType.Running]: {
-        label: 'Running',
+        label: '运行中',
         variant: 'default',
     },
     [StatusType.Waiting]: {
-        label: 'Waiting',
+        label: '等待中',
         variant: 'outline',
     },
 };
@@ -112,6 +112,7 @@ function Flows() {
 
             if (success) {
                 setDeletingFlow(null);
+                setIsDeleteDialogOpen(false);
             }
         } finally {
             setDeletingFlowIds((previousIds) => {
@@ -204,19 +205,26 @@ function Flows() {
                                     inputRef={editingInputRef}
                                     onCancel={handleFlowRenameCancel}
                                     onSave={handleFlowRenameSave}
-                                    placeholder="Flow title"
+                                    placeholder="任务流名称"
                                 />
                             </div>
                         );
                     }
 
-                    return <div className="truncate font-medium">{title}</div>;
+                    return (
+                        <div
+                            className="truncate font-medium"
+                            data-pentagi-user-content="true"
+                        >
+                            {title}
+                        </div>
+                    );
                 },
                 enableHiding: false,
                 header: ({ column }) => (
                     <DataTableColumnHeader
                         column={column}
-                        title="Title"
+                        title="名称"
                     />
                 ),
                 meta: { searchable: true },
@@ -242,7 +250,7 @@ function Flows() {
                 header: ({ column }) => (
                     <DataTableColumnHeader
                         column={column}
-                        title="Status"
+                        title="状态"
                     />
                 ),
                 maxSize: 130,
@@ -266,14 +274,14 @@ function Flows() {
                                 className="size-4"
                                 provider={flow.provider}
                             />
-                            <span className="text-sm">{flow.provider?.name || 'N/A'}</span>
+                            <span className="text-sm">{flow.provider?.name || '未配置'}</span>
                         </div>
                     );
                 },
                 header: ({ column }) => (
                     <DataTableColumnHeader
                         column={column}
-                        title="Provider"
+                        title="模型提供商"
                     />
                 ),
                 id: 'provider',
@@ -299,7 +307,7 @@ function Flows() {
                     const terminals = flow.terminals || [];
 
                     if (terminals.length === 0) {
-                        return <span className="text-muted-foreground text-sm">No terminals</span>;
+                        return <span className="text-muted-foreground text-sm">未创建容器</span>;
                     }
 
                     const isAnyConnected = terminals.some((t: TerminalFragmentFragment) => t.connected);
@@ -326,7 +334,7 @@ function Flows() {
                                         >
                                             <span className="text-xs">{terminal.image}</span>
                                             <span className="text-muted-foreground text-xs">
-                                                ({terminal.connected ? 'connected' : 'disconnected'})
+                                                ({terminal.connected ? '已连接' : '未连接'})
                                             </span>
                                         </div>
                                     ))}
@@ -338,7 +346,7 @@ function Flows() {
                 header: ({ column }) => (
                     <DataTableColumnHeader
                         column={column}
-                        title="Terminals"
+                        title="任务容器"
                     />
                 ),
                 id: 'terminals',
@@ -363,11 +371,11 @@ function Flows() {
                 header: ({ column }) => (
                     <DataTableColumnHeader
                         column={column}
-                        title="Created"
+                        title="创建时间"
                     />
                 ),
                 maxSize: 140,
-                meta: { columnMenuLabel: 'Created' },
+                meta: { columnMenuLabel: '创建时间' },
                 minSize: 100,
                 size: 120,
                 sortingFn: (rowA, rowB) => {
@@ -387,11 +395,11 @@ function Flows() {
                 header: ({ column }) => (
                     <DataTableColumnHeader
                         column={column}
-                        title="Updated"
+                        title="更新时间"
                     />
                 ),
                 maxSize: 140,
-                meta: { columnMenuLabel: 'Updated' },
+                meta: { columnMenuLabel: '更新时间' },
                 minSize: 100,
                 size: 120,
                 sortingFn: (rowA, rowB) => {
@@ -407,9 +415,9 @@ function Flows() {
                     const isRunning = ![StatusType.Failed, StatusType.Finished].includes(flow.status);
 
                     return (
-                        <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                        <div className="flex items-center justify-end gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
                             <Toggle
-                                aria-label="Toggle favorite"
+                                aria-label="切换收藏状态"
                                 className="border-none data-[state=on]:bg-transparent data-[state=on]:*:[svg]:fill-yellow-500 data-[state=on]:*:[svg]:stroke-yellow-500"
                                 onClick={async (event) => {
                                     event.stopPropagation();
@@ -424,7 +432,7 @@ function Flows() {
                             <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
                                     <Button
-                                        aria-label="Open menu"
+                                        aria-label="打开任务流操作菜单"
                                         className="size-8 p-0"
                                         onClick={(e) => e.stopPropagation()}
                                         variant="ghost"
@@ -439,11 +447,11 @@ function Flows() {
                                 >
                                     <DropdownMenuItem onClick={() => handleFlowOpen(flow.id)}>
                                         <Eye />
-                                        View
+                                        查看
                                     </DropdownMenuItem>
                                     <DropdownMenuItem onClick={() => handleFlowRenameStart(flow)}>
                                         <PencilLine className="size-3" />
-                                        Rename
+                                        重命名
                                     </DropdownMenuItem>
                                     {isRunning && (
                                         <DropdownMenuItem
@@ -453,12 +461,12 @@ function Flows() {
                                             {finishingFlowIds.has(flow.id) ? (
                                                 <>
                                                     <Spinner variant="circle" />
-                                                    Finishing...
+                                                    正在结束…
                                                 </>
                                             ) : (
                                                 <>
                                                     <Pause />
-                                                    Finish
+                                                    结束并释放容器
                                                 </>
                                             )}
                                         </DropdownMenuItem>
@@ -467,16 +475,17 @@ function Flows() {
                                     <DropdownMenuItem
                                         disabled={deletingFlowIds.has(flow.id)}
                                         onClick={() => handleFlowDeleteDialogOpen(flow)}
+                                        variant="destructive"
                                     >
                                         {deletingFlowIds.has(flow.id) ? (
                                             <>
                                                 <Spinner variant="circle" />
-                                                Deleting...
+                                                正在删除…
                                             </>
                                         ) : (
                                             <>
                                                 <Trash />
-                                                Delete
+                                                删除任务流
                                             </>
                                         )}
                                     </DropdownMenuItem>
@@ -518,16 +527,16 @@ function Flows() {
                 <>
                     <ContextMenuItem onClick={async () => toggleFavoriteFlow(flow.id)}>
                         <Star />
-                        {isFavoriteFlow(flow.id) ? 'Remove from favorites' : 'Add to favorites'}
+                        {isFavoriteFlow(flow.id) ? '取消收藏' : '添加收藏'}
                     </ContextMenuItem>
                     <ContextMenuSeparator />
                     <ContextMenuItem onClick={() => handleFlowOpen(flow.id)}>
                         <Eye />
-                        View
+                        查看
                     </ContextMenuItem>
                     <ContextMenuItem onClick={() => handleFlowRenameStart(flow)}>
                         <Pencil />
-                        Rename
+                        重命名
                     </ContextMenuItem>
 
                     {isRunning && (
@@ -536,7 +545,7 @@ function Flows() {
                             onClick={() => handleFlowFinish(flow)}
                         >
                             <Pause />
-                            {finishingFlowIds.has(flow.id) ? 'Finishing...' : 'Finish'}
+                            {finishingFlowIds.has(flow.id) ? '正在结束…' : '结束并释放容器'}
                         </ContextMenuItem>
                     )}
                     <ContextMenuSeparator />
@@ -545,7 +554,7 @@ function Flows() {
                         onClick={() => handleFlowDeleteDialogOpen(flow)}
                     >
                         <Trash />
-                        {deletingFlowIds.has(flow.id) ? 'Deleting...' : 'Delete'}
+                        {deletingFlowIds.has(flow.id) ? '正在删除…' : '删除任务流'}
                     </ContextMenuItem>
                 </>
             );
@@ -574,12 +583,12 @@ function Flows() {
     const pageHeader = (
         <AppHeader>
             <AppHeaderContent>
-                <AppHeaderTitle icon={<GitFork className="size-4 shrink-0" />}>Flows</AppHeaderTitle>
+                <AppHeaderTitle icon={<GitFork className="size-4 shrink-0" />}>所有任务流</AppHeaderTitle>
             </AppHeaderContent>
             <AppHeaderActions>
                 <AppHeaderAction
                     icon={<Plus />}
-                    label="New Flow"
+                    label="新建任务流"
                     onClick={() => navigate(routes.newFlow)}
                     variant="secondary"
                 />
@@ -593,8 +602,8 @@ function Flows() {
                 {pageHeader}
                 <div className="flex flex-1 flex-col gap-4 p-4">
                     <LoadingState
-                        description="Please wait while we fetch your conversation flows"
-                        title="Loading flows..."
+                        description="正在读取全部任务流和容器状态"
+                        title="正在加载任务流…"
                     />
                 </div>
             </>
@@ -610,7 +619,7 @@ function Flows() {
                     <ErrorState
                         message={flowsError.message}
                         onRetry={refetch}
-                        title="Error loading flows"
+                        title="任务流加载失败"
                     />
                 </div>
             </>
@@ -627,8 +636,8 @@ function Flows() {
                             <EmptyMedia variant="icon">
                                 <GitFork />
                             </EmptyMedia>
-                            <EmptyTitle>No flows found</EmptyTitle>
-                            <EmptyDescription>Get started by creating your first conversation flow</EmptyDescription>
+                            <EmptyTitle>暂无任务流</EmptyTitle>
+                            <EmptyDescription>新建第一个任务流后，它会显示在这里</EmptyDescription>
                         </EmptyHeader>
                         <EmptyContent>
                             <Button
@@ -636,7 +645,7 @@ function Flows() {
                                 variant="secondary"
                             >
                                 <Plus />
-                                New Flow
+                                新建任务流
                             </Button>
                         </EmptyContent>
                     </Empty>
@@ -649,11 +658,15 @@ function Flows() {
         <>
             {pageHeader}
             <div className="flex flex-col gap-4 p-4 pt-0">
+                <div className="text-muted-foreground flex flex-wrap items-center justify-between gap-2 text-sm">
+                    <span>共 {flows.length} 个任务流</span>
+                    <span>删除任务流会同时清理其任务容器和独立工作目录</span>
+                </div>
                 <DataTable<Flow>
                     columns={columns}
                     data={flows}
-                    empty={{ entityName: 'flows' }}
-                    filterPlaceholder="Filter flows..."
+                    empty={{ entityName: '任务流' }}
+                    filterPlaceholder="搜索任务流名称、ID、状态或模型提供商…"
                     filterValue={filter}
                     isVirtualized
                     onFilterChange={setFilter}
@@ -664,13 +677,17 @@ function Flows() {
                 />
 
                 <ConfirmationDialog
-                    cancelText="Cancel"
-                    confirmText="Delete"
+                    cancelText="取消"
+                    confirmText="删除并清理"
+                    description={
+                        deletingFlow
+                            ? `确定删除任务流“${deletingFlow.title}”吗？任务记录、任务容器和独立工作目录将一并删除，此操作无法撤销。`
+                            : undefined
+                    }
                     handleConfirm={handleFlowDelete}
                     handleOpenChange={setIsDeleteDialogOpen}
                     isOpen={isDeleteDialogOpen}
-                    itemName={deletingFlow?.title}
-                    itemType="flow"
+                    title="删除任务流"
                 />
             </div>
         </>

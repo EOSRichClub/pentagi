@@ -144,7 +144,14 @@ function Templates() {
                     );
                 }
 
-                return <div className="max-w-[380px] truncate font-medium">{title}</div>;
+                return (
+                    <div
+                        className="max-w-[380px] truncate font-medium"
+                        data-pentagi-user-content="true"
+                    >
+                        {title}
+                    </div>
+                );
             },
             header: ({ column }) => (
                 <DataTableColumnHeader

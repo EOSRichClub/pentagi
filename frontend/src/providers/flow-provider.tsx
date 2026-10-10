@@ -264,7 +264,7 @@ export function FlowProvider({ children }: FlowProviderProps) {
 
     const createAssistant = useCallback(
         async (values: FlowFormValues) => {
-            const { message, providerName, resourceIds, useAgents } = values;
+            const { flowControlEnabled, message, providerName, resourceIds, useAgents } = values;
 
             const input = message.trim();
             const modelProvider = providerName.trim();
@@ -276,6 +276,7 @@ export function FlowProvider({ children }: FlowProviderProps) {
             try {
                 const { data } = await createAssistantMutation({
                     variables: {
+                        flowControlEnabled,
                         flowId,
                         input,
                         modelProvider,
@@ -305,7 +306,7 @@ export function FlowProvider({ children }: FlowProviderProps) {
 
     const submitAssistantMessage = useCallback(
         async (assistantId: string, values: FlowFormValues) => {
-            const { message, resourceIds, useAgents } = values;
+            const { flowControlEnabled, message, resourceIds, useAgents } = values;
 
             const input = message.trim();
 
@@ -317,6 +318,7 @@ export function FlowProvider({ children }: FlowProviderProps) {
                 await submitAssistantMessageMutation({
                     variables: {
                         assistantId,
+                        flowControlEnabled,
                         flowId,
                         input,
                         resourceIds: resourceIds?.length ? resourceIds : undefined,

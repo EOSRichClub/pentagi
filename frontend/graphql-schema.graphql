@@ -159,6 +159,7 @@ fragment assistantFragment on Assistant {
     }
     flowId
     useAgents
+    flowControlEnabled
     createdAt
     updatedAt
 }
@@ -269,6 +270,8 @@ fragment providerConfigFragment on ProviderConfig {
 }
 
 fragment agentsConfigFragment on AgentsConfig {
+    modelServiceId
+    modelCredentialId
     simple {
         ...agentConfigFragment
     }
@@ -1092,8 +1095,22 @@ mutation renameFlow($flowId: ID!, $title: String!) {
     renameFlow(flowId: $flowId, title: $title)
 }
 
-mutation createAssistant($flowId: ID!, $modelProvider: String!, $input: String!, $useAgents: Boolean!, $resourceIds: [ID!]) {
-    createAssistant(flowId: $flowId, modelProvider: $modelProvider, input: $input, useAgents: $useAgents, resourceIds: $resourceIds) {
+mutation createAssistant(
+    $flowId: ID!
+    $modelProvider: String!
+    $input: String!
+    $useAgents: Boolean!
+    $flowControlEnabled: Boolean! = false
+    $resourceIds: [ID!]
+) {
+    createAssistant(
+        flowId: $flowId
+        modelProvider: $modelProvider
+        input: $input
+        useAgents: $useAgents
+        flowControlEnabled: $flowControlEnabled
+        resourceIds: $resourceIds
+    ) {
         flow {
             ...flowFragment
         }
@@ -1103,8 +1120,22 @@ mutation createAssistant($flowId: ID!, $modelProvider: String!, $input: String!,
     }
 }
 
-mutation callAssistant($flowId: ID!, $assistantId: ID!, $input: String!, $useAgents: Boolean!, $resourceIds: [ID!]) {
-    callAssistant(flowId: $flowId, assistantId: $assistantId, input: $input, useAgents: $useAgents, resourceIds: $resourceIds)
+mutation callAssistant(
+    $flowId: ID!
+    $assistantId: ID!
+    $input: String!
+    $useAgents: Boolean!
+    $flowControlEnabled: Boolean! = false
+    $resourceIds: [ID!]
+) {
+    callAssistant(
+        flowId: $flowId
+        assistantId: $assistantId
+        input: $input
+        useAgents: $useAgents
+        flowControlEnabled: $flowControlEnabled
+        resourceIds: $resourceIds
+    )
 }
 
 mutation stopAssistant($flowId: ID!, $assistantId: ID!) {
@@ -1117,8 +1148,20 @@ mutation deleteAssistant($flowId: ID!, $assistantId: ID!) {
     deleteAssistant(flowId: $flowId, assistantId: $assistantId)
 }
 
-mutation testAgent($type: ProviderType!, $agentType: AgentConfigType!, $agent: AgentConfigInput!) {
-    testAgent(type: $type, agentType: $agentType, agent: $agent) {
+mutation testAgent(
+    $type: ProviderType!
+    $agentType: AgentConfigType!
+    $agent: AgentConfigInput!
+    $modelServiceId: ID
+    $modelCredentialId: ID
+) {
+    testAgent(
+        type: $type
+        agentType: $agentType
+        agent: $agent
+        modelServiceId: $modelServiceId
+        modelCredentialId: $modelCredentialId
+    ) {
         ...agentTestResultFragment
     }
 }

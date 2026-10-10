@@ -395,6 +395,14 @@ func (r *containerRecorder) UpdateContainerStatusLocalID(
 	return r.row, nil
 }
 
+func (r *containerRecorder) UpdateContainerStatus(
+	_ context.Context, arg database.UpdateContainerStatusParams,
+) (database.Container, error) {
+	r.statuses = append(r.statuses, arg.Status)
+	r.row.Status = arg.Status
+	return r.row, nil
+}
+
 // newRunContainerClient extends the daemon-bound client with everything
 // RunContainer additionally needs — a recording database and a private data
 // directory — leaving every branch-selecting field at its neutral default so a
@@ -618,6 +626,34 @@ func TestRunContainerBacksWorkDirWithVolume(t *testing.T) {
 	listing, err := dc.ListContainerDir(t.Context(), inspect.ID, WorkFolderPathInContainer)
 	require.NoError(t, err)
 	require.Empty(t, listing.Files)
+}
+
+func TestRemoveContainerRemovesNamedWorkVolume(t *testing.T) {
+	dc, _ := newRunContainerClient(t)
+	name := probeName(t)
+
+	row, _ := runProbeContainer(t, dc, name, 12, nil, nil)
+	require.NoError(t, dc.RemoveContainer(t.Context(), row.LocalID.String, row.ID))
+
+	_, err := dc.client.VolumeInspect(t.Context(), name+WorkerVolumeNameSuffix, client.VolumeInspectOptions{})
+	require.Error(t, err)
+	require.True(t, cerrdefs.IsNotFound(err), "workspace volume must be removed with the container: %v", err)
+}
+
+func TestPurgeContainerRemovesOrphanedWorkVolume(t *testing.T) {
+	dc := newDaemonClient(t)
+	name := probeName(t)
+	volumeName := name + WorkerVolumeNameSuffix
+
+	_, err := dc.client.VolumeCreate(t.Context(), client.VolumeCreateOptions{Name: volumeName})
+	require.NoError(t, err)
+	cleanupProbeContainer(t, dc, name)
+
+	require.NoError(t, dc.PurgeContainer(t.Context(), name))
+
+	_, err = dc.client.VolumeInspect(t.Context(), volumeName, client.VolumeInspectOptions{})
+	require.Error(t, err)
+	require.True(t, cerrdefs.IsNotFound(err), "orphaned workspace volume must be removed: %v", err)
 }
 
 // With a host-side data directory /work is a bind of the per-flow subdirectory,

@@ -9,7 +9,7 @@ import {
     ProvidersDocument,
     ProviderUpdatedDocument,
 } from '@/graphql/types';
-import { findProviderByName, sortProviders } from '@/models/provider';
+import { findProviderByName, hideShadowedDefaultProviders, sortProviders } from '@/models/provider';
 import { useUser } from '@/providers/user-provider';
 
 const SELECTED_PROVIDER_KEY = 'selectedProvider';
@@ -51,7 +51,10 @@ export function ProvidersProvider({ children }: ProvidersProviderProps) {
     useSubscription(ProviderUpdatedDocument, { onData: refetchOnProviderEvent, skip: subscriptionSkip });
     useSubscription(ProviderDeletedDocument, { onData: refetchOnProviderEvent, skip: subscriptionSkip });
 
-    const providers = useMemo(() => sortProviders(providersData?.providers || []), [providersData?.providers]);
+    const providers = useMemo(
+        () => sortProviders(hideShadowedDefaultProviders(providersData?.providers || [])),
+        [providersData?.providers],
+    );
 
     const [selectedProviderName, setSelectedProviderName] = useState<null | string>(() => {
         return localStorage.getItem(SELECTED_PROVIDER_KEY);

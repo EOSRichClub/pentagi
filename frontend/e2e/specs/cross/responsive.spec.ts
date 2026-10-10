@@ -2,6 +2,7 @@ import { devices } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/test.ts';
 import { expectCleanPage } from '../../helpers/errors.ts';
+import { assistantsCassette } from '../../mocks/cassettes/assistants.ts';
 import { flowsCassette } from '../../mocks/cassettes/flows.ts';
 
 const hasHorizontalOverflow = () => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1;
@@ -32,6 +33,50 @@ test.describe('responsive', { tag: '@cross' }, () => {
             await expect(page.getByRole('menuitem', { name: /Flows/ })).toBeVisible();
             await expect(page.getByRole('menuitem', { name: /favorites/ })).toBeVisible();
             await page.keyboard.press('Escape');
+
+            expectCleanPage(pageErrorLog);
+        });
+    });
+
+    test.describe('mobile assistant composer', () => {
+        test.use({ cassette: assistantsCassette() });
+        test.use(pixel7);
+
+        test('keeps provider and assistant controls compact and readable', async ({ page, pageErrorLog }, testInfo) => {
+            await page.goto('/flows/5');
+            await page.getByRole('tab', { name: /Assistant|对话助手/ }).click();
+
+            const textarea = page.locator('textarea').first();
+            await expect(textarea).toBeVisible();
+
+            const composer = textarea.locator('..');
+            const form = composer.locator('xpath=ancestor::form[1]');
+            const composerBox = await composer.boundingBox();
+
+            expect(composerBox).not.toBeNull();
+            expect(composerBox!.height).toBeLessThanOrEqual(160);
+            expect(await page.evaluate(hasHorizontalOverflow)).toBe(false);
+
+            for (const label of ['使用智能体', '允许控制自动执行']) {
+                const labelBox = await form.getByText(label, { exact: true }).boundingBox();
+
+                expect(labelBox).not.toBeNull();
+                expect(labelBox!.width).toBeGreaterThan(labelBox!.height);
+            }
+
+            const screenshotPath = testInfo.outputPath('mobile-assistant-composer.png');
+            await composer.screenshot({ path: screenshotPath });
+            await testInfo.attach('mobile-assistant-composer', {
+                contentType: 'image/png',
+                path: screenshotPath,
+            });
+
+            const pageScreenshotPath = testInfo.outputPath('mobile-assistant-page.png');
+            await page.screenshot({ path: pageScreenshotPath });
+            await testInfo.attach('mobile-assistant-page', {
+                contentType: 'image/png',
+                path: pageScreenshotPath,
+            });
 
             expectCleanPage(pageErrorLog);
         });

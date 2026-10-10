@@ -6,6 +6,7 @@ import type { BackendOptions, BackendTier } from './fixtures/backend.ts';
 const rawTier = process.env.E2E_TIER ?? 'mock';
 const isCI = Boolean(process.env.CI);
 const isVisual = process.env.E2E_VISUAL === '1';
+const executablePath = process.env.E2E_CHROMIUM_EXECUTABLE_PATH;
 
 // Baselines are pinned-container pixels. Gate on a marker the container run sets
 // (run-visual.sh and the CI job), not on the host OS: a Linux workstation passes a
@@ -105,6 +106,7 @@ export default defineConfig<BackendOptions>({
         backend: { installMocks: TIERS[tier].installMocks },
         baseURL: TIERS[tier].baseURL,
         ignoreHTTPSErrors: tier === 'local',
+        ...(executablePath ? { launchOptions: { executablePath } } : {}),
         locale: 'en-US',
         screenshot: tier === 'stand' ? 'off' : 'only-on-failure',
         timezoneId: 'UTC',

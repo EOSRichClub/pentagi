@@ -125,3 +125,37 @@ describe('FlowForm attachments', () => {
         expect(await screen.findByRole('button', { name: 'Remove scope.txt' })).toBeInTheDocument();
     });
 });
+
+describe('FlowForm assistant flow control', () => {
+    it('keeps automation control disabled by default and submits an explicit opt-in', async () => {
+        const user = userEvent.setup({ delay: null });
+        const onSubmit = vi.fn();
+
+        render(
+            <FlowForm
+                defaultValues={{ providerName: 'openai' }}
+                onSubmit={onSubmit}
+                type="assistant"
+            />,
+        );
+
+        await user.type(screen.getByRole('textbox'), 'check the target');
+        await user.click(screen.getByRole('button', { name: 'Submit' }));
+
+        await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+        expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({
+            flowControlEnabled: false,
+            useAgents: false,
+        });
+
+        await user.click(screen.getAllByRole('switch')[1]!);
+        await user.type(screen.getByRole('textbox'), 'continue');
+        await user.click(screen.getByRole('button', { name: 'Submit' }));
+
+        await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
+        expect(onSubmit.mock.calls[1]?.[0]).toMatchObject({
+            flowControlEnabled: true,
+            useAgents: false,
+        });
+    });
+});

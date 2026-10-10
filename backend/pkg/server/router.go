@@ -180,6 +180,7 @@ func NewRouter(
 	userService := services.NewUserService(orm, userCache)
 	roleService := services.NewRoleService(orm)
 	providerService := services.NewProviderService(providers)
+	modelServiceService := services.NewModelServiceService(providers.CredentialStore())
 	settingsService := services.NewSettingsService(cfg)
 	flowService := services.NewFlowService(orm, providers, controller, subscriptions)
 	flowFileService := services.NewFlowFileService(orm, cfg.DataDir, cfg.TenantPrefix(), dockerClient, subscriptions)
@@ -291,6 +292,7 @@ func NewRouter(
 
 		setKnowledgeGroup(privateGroup, knowledgeService)
 		setProvidersGroup(privateGroup, providerService)
+		setModelServicesGroup(privateGroup, modelServiceService)
 		setSettingsGroup(privateGroup, settingsService)
 		setFlowsGroup(privateGroup, flowService)
 		setFlowFilesGroup(privateGroup, flowFileService)
@@ -416,6 +418,22 @@ func setProvidersGroup(parent *gin.RouterGroup, svc *services.ProviderService) {
 	providersGroup := parent.Group("/providers")
 	{
 		providersGroup.GET("/", svc.GetProviders)
+	}
+}
+
+func setModelServicesGroup(parent *gin.RouterGroup, svc *services.ModelServiceService) {
+	servicesGroup := parent.Group("/model-services")
+	{
+		servicesGroup.GET("/", svc.List)
+		servicesGroup.POST("/", svc.CreateService)
+		servicesGroup.PUT("/:serviceID", svc.UpdateService)
+		servicesGroup.DELETE("/:serviceID", svc.DeleteService)
+		servicesGroup.POST("/:serviceID/credentials", svc.CreateCredential)
+	}
+	credentialsGroup := parent.Group("/model-credentials")
+	{
+		credentialsGroup.PUT("/:credentialID", svc.UpdateCredential)
+		credentialsGroup.DELETE("/:credentialID", svc.DeleteCredential)
 	}
 }
 

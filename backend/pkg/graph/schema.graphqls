@@ -252,6 +252,7 @@ type Assistant {
   provider: Provider!
   flowId: ID!
   useAgents: Boolean!
+  flowControlEnabled: Boolean!
   createdAt: Time!
   updatedAt: Time!
 }
@@ -826,6 +827,8 @@ type AgentConfig {
 
 # All agent type configurations for a provider
 type AgentsConfig {
+  modelServiceId: ID
+  modelCredentialId: ID
   simple: AgentConfig!
   simpleJson: AgentConfig!
   primaryAgent: AgentConfig!
@@ -881,6 +884,8 @@ input AgentConfigInput {
 
 # Input type for AgentsConfig
 input AgentsConfigInput {
+  modelServiceId: ID
+  modelCredentialId: ID
   simple: AgentConfigInput!
   simpleJson: AgentConfigInput!
   primaryAgent: AgentConfigInput!
@@ -1065,13 +1070,19 @@ type Mutation {
   renameFlow(flowId: ID!, title: String!): ResultType!
 
   # Assistant management
-  createAssistant(flowId: ID!, modelProvider: String!, input: String!, useAgents: Boolean!, resourceIds: [ID!]): FlowAssistant!
-  callAssistant(flowId: ID!, assistantId: ID!, input: String!, useAgents: Boolean!, resourceIds: [ID!]): ResultType!
+  createAssistant(flowId: ID!, modelProvider: String!, input: String!, useAgents: Boolean!, flowControlEnabled: Boolean! = false, resourceIds: [ID!]): FlowAssistant!
+  callAssistant(flowId: ID!, assistantId: ID!, input: String!, useAgents: Boolean!, flowControlEnabled: Boolean! = false, resourceIds: [ID!]): ResultType!
   stopAssistant(flowId: ID!, assistantId: ID!): Assistant!
   deleteAssistant(flowId: ID!, assistantId: ID!): ResultType!
 
   # Testing and validation
-  testAgent(type: ProviderType!, agentType: AgentConfigType!, agent: AgentConfigInput!): AgentTestResult!
+  testAgent(
+    type: ProviderType!
+    agentType: AgentConfigType!
+    agent: AgentConfigInput!
+    modelServiceId: ID
+    modelCredentialId: ID
+  ): AgentTestResult!
   testProvider(type: ProviderType!, agents: AgentsConfigInput!): ProviderTestResult!
   createProvider(name: String!, type: ProviderType!, agents: AgentsConfigInput!): ProviderConfig!
   updateProvider(providerId: ID!, name: String!, agents: AgentsConfigInput!): ProviderConfig!

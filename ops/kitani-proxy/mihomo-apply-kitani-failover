@@ -1,0 +1,146 @@
+#!/usr/bin/env python3
+"""Install Kitani-specific Mihomo route groups without exposing Mihomo globally."""
+
+import os
+import pathlib
+import shutil
+import subprocess
+import tempfile
+
+import yaml
+
+
+CONFIG = pathlib.Path("/etc/mihomo/config.yaml")
+HEALTH_GROUP = "KITANI_AUTO"
+ROUTE_GROUP = "KITANI_ROUTE"
+HEALTH_URL = "https://api.kitani.ai/v1/models"
+PREFERRED = [
+    "HK丨香港1",
+    "HK丨香港2",
+    "HK丨香港3",
+    "HK丨香港4",
+    "HK丨香港5",
+    "SG丨新加坡1",
+    "SG丨新加坡2",
+    "TW丨台湾1",
+    "JP丨日本1",
+    "KR丨韩国1",
+    "US丨加利福利亚1",
+]
+
+
+def fail(message):
+    raise SystemExit(message)
+
+
+if not CONFIG.is_file():
+    fail(f"missing configuration: {CONFIG}")
+
+original = CONFIG.read_bytes()
+cfg = yaml.safe_load(original) or {}
+proxies = cfg.get("proxies") or []
+proxy_names = [p.get("name") for p in proxies if isinstance(p, dict) and p.get("name")]
+available = set(proxy_names)
+members = [name for name in PREFERRED if name in available]
+if len(members) < 3:
+    for name in proxy_names:
+        if len(members) >= 12:
+            break
+        if name not in members:
+            members.append(name)
+if not members:
+    fail("subscription contains no proxy nodes")
+
+health_group = {
+    "name": HEALTH_GROUP,
+    "type": "fallback",
+    "proxies": members,
+    "url": HEALTH_URL,
+    "interval": 60,
+    "lazy": False,
+    "timeout": 6000,
+    "max-failed-times": 1,
+    "expected-status": "200/401",
+    "disable-udp": True,
+    "hidden": True,
+}
+route_members = [HEALTH_GROUP, *members] if len(members) > 1 else [HEALTH_GROUP]
+route_group = {
+    "name": ROUTE_GROUP,
+    "type": "select",
+    "proxies": route_members,
+    "hidden": True,
+    "disable-udp": True,
+}
+
+managed = {HEALTH_GROUP, ROUTE_GROUP}
+groups = [
+    group
+    for group in (cfg.get("proxy-groups") or [])
+    if not (isinstance(group, dict) and group.get("name") in managed)
+]
+cfg["proxy-groups"] = [health_group, route_group, *groups]
+
+rules = [
+    rule
+    for rule in (cfg.get("rules") or [])
+    if not (
+        isinstance(rule, str)
+        and (
+            rule.startswith("DOMAIN,api.kitani.ai,")
+            or rule.startswith("DOMAIN-SUFFIX,kitani.ai,")
+        )
+    )
+]
+cfg["rules"] = [f"DOMAIN,api.kitani.ai,{ROUTE_GROUP}", *rules]
+rendered = yaml.safe_dump(
+    cfg,
+    allow_unicode=True,
+    default_flow_style=False,
+    sort_keys=False,
+    width=4096,
+).encode("utf-8")
+
+if rendered == original:
+    print(f"Kitani route unchanged: {len(members)} health nodes")
+    raise SystemExit(0)
+
+fd, temp_name = tempfile.mkstemp(
+    prefix=".config.kitani-route.", suffix=".yaml", dir=str(CONFIG.parent)
+)
+temp = pathlib.Path(temp_name)
+try:
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(rendered)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.chmod(temp, 0o600)
+    mihomo = shutil.which("mihomo") or "/usr/local/bin/mihomo"
+    checked = subprocess.run(
+        [mihomo, "-t", "-d", "/etc/mihomo", "-f", str(temp)],
+        text=True,
+        capture_output=True,
+    )
+    if checked.returncode != 0:
+        fail("generated Kitani route configuration did not pass validation")
+
+    rollback = CONFIG.parent / ".config.before-kitani-route.yaml"
+    rollback.write_bytes(original)
+    os.chmod(rollback, 0o600)
+    os.replace(temp, CONFIG)
+    os.chmod(CONFIG, 0o600)
+    restarted = subprocess.run(
+        ["systemctl", "restart", "mihomo"], text=True, capture_output=True
+    )
+    if restarted.returncode != 0:
+        os.replace(rollback, CONFIG)
+        os.chmod(CONFIG, 0o600)
+        subprocess.run(["systemctl", "restart", "mihomo"], check=False)
+        fail("mihomo restart failed; original configuration restored")
+    rollback.unlink(missing_ok=True)
+    print(
+        f"Kitani route applied: {len(members)} health nodes, "
+        f"{len(route_members)} route choices"
+    )
+finally:
+    temp.unlink(missing_ok=True)

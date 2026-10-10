@@ -40,6 +40,7 @@ type FlowController interface {
 		flowID int64,
 		input string,
 		useAgents bool,
+		flowControlEnabled bool,
 		prvname provider.ProviderName,
 		prvtype provider.ProviderType,
 		functions *tools.Functions,
@@ -50,6 +51,7 @@ type FlowController interface {
 	GetFlow(ctx context.Context, flowID int64) (FlowWorker, error)
 	StopFlow(ctx context.Context, flowID int64) error
 	FinishFlow(ctx context.Context, flowID int64) error
+	PurgeFlow(ctx context.Context, flowID int64) error
 	RenameFlow(ctx context.Context, flowID int64, title string) error
 	RenameFlowsProvider(ctx context.Context, userID int64, oldName, newName provider.ProviderName) error
 	ResetFlowsProviderToDefault(
@@ -200,6 +202,7 @@ func (fc *flowController) CreateAssistant(
 	flowID int64,
 	input string,
 	useAgents bool,
+	flowControlEnabled bool,
 	prvname provider.ProviderName,
 	prvtype provider.ProviderType,
 	functions *tools.Functions,
@@ -305,16 +308,17 @@ func (fc *flowController) CreateAssistant(
 	}
 
 	aw, err := NewAssistantWorker(ctx, newAssistantWorkerCtx{
-		userID:        userID,
-		flowID:        flowID,
-		input:         input,
-		prvname:       prvname,
-		prvtype:       prvtype,
-		useAgents:     useAgents,
-		functions:     functions,
-		resources:     resources,
-		fw:            fw,
-		flowWorkerCtx: flowWorkerCtx,
+		userID:             userID,
+		flowID:             flowID,
+		input:              input,
+		prvname:            prvname,
+		prvtype:            prvtype,
+		useAgents:          useAgents,
+		flowControlEnabled: flowControlEnabled,
+		functions:          functions,
+		resources:          resources,
+		fw:                 fw,
+		flowWorkerCtx:      flowWorkerCtx,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create assistant: %w", err)
@@ -389,6 +393,53 @@ func (fc *flowController) FinishFlow(ctx context.Context, flowID int64) error {
 	delete(fc.flows, flowID)
 
 	return nil
+}
+
+// PurgeFlow releases a loaded flow and then removes any stale containers and
+// the deterministic named workspace volume that may remain. Unlike FinishFlow,
+// it is safe to call for already-finished or failed flows that are no longer in
+// the in-memory worker map, which is exactly what the delete endpoints need.
+func (fc *flowController) PurgeFlow(ctx context.Context, flowID int64) error {
+	fc.mx.Lock()
+	defer fc.mx.Unlock()
+
+	var cleanupErrs []error
+	if flow, ok := fc.flows[flowID]; ok {
+		if err := flow.Finish(ctx); err != nil {
+			// Deletion has a stronger contract than the ordinary finish action.
+			// Continue with direct Docker cleanup when worker shutdown is only
+			// partially successful, and never leave a deleted flow addressable in
+			// the in-memory map.
+			logrus.WithContext(ctx).WithError(err).Warnf(
+				"flow %d did not finish cleanly before purge; forcing resource cleanup", flowID,
+			)
+		}
+		delete(fc.flows, flowID)
+	}
+
+	containers, err := fc.db.GetFlowContainers(ctx, flowID)
+	if err != nil {
+		cleanupErrs = append(cleanupErrs, fmt.Errorf("failed to list flow %d containers: %w", flowID, err))
+	} else {
+		for _, cnt := range containers {
+			if cnt.Status == database.ContainerStatusDeleted || !cnt.LocalID.Valid || cnt.LocalID.String == "" {
+				continue
+			}
+
+			if err := fc.docker.RemoveContainer(ctx, cnt.LocalID.String, cnt.ID); err != nil {
+				cleanupErrs = append(cleanupErrs,
+					fmt.Errorf("failed to remove flow %d container %s: %w", flowID, cnt.Name, err))
+			}
+		}
+	}
+
+	containerName := tools.PrimaryTerminalName(fc.cfg.TenantPrefix(), flowID)
+	if err := fc.docker.PurgeContainer(ctx, containerName); err != nil {
+		cleanupErrs = append(cleanupErrs,
+			fmt.Errorf("failed to purge flow %d container artifacts: %w", flowID, err))
+	}
+
+	return errors.Join(cleanupErrs...)
 }
 
 func (fc *flowController) RenameFlow(ctx context.Context, flowID int64, title string) error {

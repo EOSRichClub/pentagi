@@ -88,6 +88,7 @@ test.describe('flow assistants', { tag: '@flows' }, () => {
             await page.getByRole('button', { name: 'Submit' }).click();
 
             expect((await request).postDataJSON().variables).toEqual({
+                flowControlEnabled: false,
                 flowId: '5',
                 input: 'plan the recon',
                 modelProvider: PROVIDER.name,
@@ -133,6 +134,7 @@ test.describe('flow assistants', { tag: '@flows' }, () => {
 
             expect((await request).postDataJSON().variables).toEqual({
                 assistantId: WAITING_ASSISTANT.id,
+                flowControlEnabled: false,
                 flowId: '5',
                 input: 'and the other ports?',
                 useAgents: false,

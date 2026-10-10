@@ -1,0 +1,13 @@
+[Unit]
+Description=Apply resource limits to PentAGI worker containers
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/pentagi-worker-limiter
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -49,6 +49,7 @@ import { useResources } from '@/providers/resources-provider';
 import { type Template, useTemplates } from '@/providers/templates-provider';
 
 const formSchema = z.object({
+    flowControlEnabled: z.boolean(),
     message: z.string().trim().min(1, { message: 'Message cannot be empty' }),
     providerName: z.string().trim().min(1, { message: 'Provider must be selected' }),
     resourceIds: z.array(z.string()),
@@ -147,6 +148,7 @@ export function FlowForm({
 
     const form = useAppForm<FlowFormValues>({
         defaultValues: {
+            flowControlEnabled: defaultValues?.flowControlEnabled ?? false,
             message: defaultValues?.message ?? '',
             providerName: defaultValues?.providerName ?? '',
             resourceIds: defaultValues?.resourceIds ?? [],
@@ -537,7 +539,10 @@ export function FlowForm({
                                         textareaRef.current = element;
                                     }}
                                 />
-                                <InputGroupAddon align="block-end">
+                                <InputGroupAddon
+                                    align="block-end"
+                                    className="flex-wrap gap-x-2 gap-y-2"
+                                >
                                     <FormField
                                         control={control}
                                         name="providerName"
@@ -550,13 +555,14 @@ export function FlowForm({
                                                 <DropdownMenu>
                                                     <DropdownMenuTrigger asChild>
                                                         <InputGroupButton
+                                                            className="max-w-full min-w-0 flex-1 justify-start sm:flex-none"
                                                             disabled={isFormDisabled || isProviderDisabled}
                                                             variant="ghost"
                                                         >
                                                             {currentProvider && (
                                                                 <ProviderIcon provider={currentProvider} />
                                                             )}
-                                                            <span className="max-w-40 truncate">
+                                                            <span className="min-w-0 flex-1 truncate sm:max-w-40">
                                                                 {currentProvider
                                                                     ? getProviderDisplayName(currentProvider)
                                                                     : 'Select Provider'}
@@ -643,40 +649,81 @@ export function FlowForm({
                                     />
 
                                     {type === 'assistant' && (
-                                        <FormField
-                                            control={control}
-                                            name="useAgents"
-                                            render={({ field: useAgentsField }) => (
-                                                <TooltipProvider>
-                                                    <Tooltip>
-                                                        <TooltipTrigger asChild>
-                                                            <FormItem className="flex flex-row items-center gap-0">
-                                                                <FormControl>
-                                                                    <Switch
-                                                                        checked={useAgentsField.value}
-                                                                        disabled={isFormDisabled}
-                                                                        onCheckedChange={useAgentsField.onChange}
-                                                                    />
-                                                                </FormControl>
-                                                                <FormLabel
-                                                                    className="flex cursor-pointer pl-2 text-xs font-normal"
-                                                                    onClick={() =>
-                                                                        useAgentsField.onChange(!useAgentsField.value)
-                                                                    }
-                                                                >
-                                                                    Use Agents
-                                                                </FormLabel>
-                                                            </FormItem>
-                                                        </TooltipTrigger>
-                                                        <TooltipContent>
-                                                            <p className="max-w-48">
-                                                                Enable multi-agent collaboration for complex tasks
-                                                            </p>
-                                                        </TooltipContent>
-                                                    </Tooltip>
-                                                </TooltipProvider>
-                                            )}
-                                        />
+                                        <div className="order-last flex w-full min-w-0 flex-wrap items-center gap-x-4 gap-y-2 sm:order-none sm:w-auto">
+                                            <FormField
+                                                control={control}
+                                                name="useAgents"
+                                                render={({ field: useAgentsField }) => (
+                                                    <TooltipProvider>
+                                                        <Tooltip>
+                                                            <TooltipTrigger asChild>
+                                                                <FormItem className="flex shrink-0 flex-row items-center gap-0">
+                                                                    <FormControl>
+                                                                        <Switch
+                                                                            checked={useAgentsField.value}
+                                                                            disabled={isFormDisabled}
+                                                                            onCheckedChange={useAgentsField.onChange}
+                                                                        />
+                                                                    </FormControl>
+                                                                    <FormLabel
+                                                                        className="flex cursor-pointer pl-2 text-xs font-normal whitespace-nowrap"
+                                                                        onClick={() =>
+                                                                            useAgentsField.onChange(
+                                                                                !useAgentsField.value,
+                                                                            )
+                                                                        }
+                                                                    >
+                                                                        使用智能体
+                                                                    </FormLabel>
+                                                                </FormItem>
+                                                            </TooltipTrigger>
+                                                            <TooltipContent>
+                                                                <p className="max-w-56">
+                                                                    为复杂任务启用多智能体协作，不会自动开启任务流
+                                                                </p>
+                                                            </TooltipContent>
+                                                        </Tooltip>
+                                                    </TooltipProvider>
+                                                )}
+                                            />
+
+                                            <FormField
+                                                control={control}
+                                                name="flowControlEnabled"
+                                                render={({ field: flowControlField }) => (
+                                                    <TooltipProvider>
+                                                        <Tooltip>
+                                                            <TooltipTrigger asChild>
+                                                                <FormItem className="flex shrink-0 flex-row items-center gap-0">
+                                                                    <FormControl>
+                                                                        <Switch
+                                                                            checked={flowControlField.value}
+                                                                            disabled={isFormDisabled}
+                                                                            onCheckedChange={flowControlField.onChange}
+                                                                        />
+                                                                    </FormControl>
+                                                                    <FormLabel
+                                                                        className="flex cursor-pointer pl-2 text-xs font-normal whitespace-nowrap"
+                                                                        onClick={() =>
+                                                                            flowControlField.onChange(
+                                                                                !flowControlField.value,
+                                                                            )
+                                                                        }
+                                                                    >
+                                                                        允许控制自动执行
+                                                                    </FormLabel>
+                                                                </FormItem>
+                                                            </TooltipTrigger>
+                                                            <TooltipContent>
+                                                                <p className="max-w-64">
+                                                                    开启后，对话助手可以启动、停止或修改当前自动任务
+                                                                </p>
+                                                            </TooltipContent>
+                                                        </Tooltip>
+                                                    </TooltipProvider>
+                                                )}
+                                            />
+                                        </div>
                                     )}
 
                                     <DropdownMenu

@@ -365,6 +365,14 @@ function FlowAssistantMessages({ className }: FlowAssistantMessagesProps) {
         return selectedAssistant.useAgents;
     }, [selectedAssistant, settings?.assistantUseAgents, isAssistantCreating]);
 
+    const shouldEnableFlowControl = useMemo(() => {
+        if (isAssistantCreating || !selectedAssistant) {
+            return false;
+        }
+
+        return selectedAssistant.flowControlEnabled;
+    }, [selectedAssistant, isAssistantCreating]);
+
     const hasActiveFilters = useMemo(() => {
         return !!searchValue.trim();
     }, [searchValue]);
@@ -637,6 +645,7 @@ function FlowAssistantMessages({ className }: FlowAssistantMessagesProps) {
             <div className="bg-background sticky bottom-0 p-px">
                 <FlowForm
                     defaultValues={{
+                        flowControlEnabled: shouldEnableFlowControl,
                         providerName: selectedAssistant?.provider?.name ?? '',
                         useAgents: shouldUseAgents,
                     }}

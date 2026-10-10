@@ -85,19 +85,21 @@ type AgentTypeUsageStats struct {
 }
 
 type AgentsConfig struct {
-	Simple       *AgentConfig `json:"simple"`
-	SimpleJSON   *AgentConfig `json:"simpleJson"`
-	PrimaryAgent *AgentConfig `json:"primaryAgent"`
-	Assistant    *AgentConfig `json:"assistant"`
-	Generator    *AgentConfig `json:"generator"`
-	Refiner      *AgentConfig `json:"refiner"`
-	Adviser      *AgentConfig `json:"adviser"`
-	Reflector    *AgentConfig `json:"reflector"`
-	Searcher     *AgentConfig `json:"searcher"`
-	Enricher     *AgentConfig `json:"enricher"`
-	Coder        *AgentConfig `json:"coder"`
-	Installer    *AgentConfig `json:"installer"`
-	Pentester    *AgentConfig `json:"pentester"`
+	ModelServiceID    *int64       `json:"modelServiceId,omitempty"`
+	ModelCredentialID *int64       `json:"modelCredentialId,omitempty"`
+	Simple            *AgentConfig `json:"simple"`
+	SimpleJSON        *AgentConfig `json:"simpleJson"`
+	PrimaryAgent      *AgentConfig `json:"primaryAgent"`
+	Assistant         *AgentConfig `json:"assistant"`
+	Generator         *AgentConfig `json:"generator"`
+	Refiner           *AgentConfig `json:"refiner"`
+	Adviser           *AgentConfig `json:"adviser"`
+	Reflector         *AgentConfig `json:"reflector"`
+	Searcher          *AgentConfig `json:"searcher"`
+	Enricher          *AgentConfig `json:"enricher"`
+	Coder             *AgentConfig `json:"coder"`
+	Installer         *AgentConfig `json:"installer"`
+	Pentester         *AgentConfig `json:"pentester"`
 }
 
 type AgentsPrompts struct {
@@ -119,14 +121,15 @@ type AgentsPrompts struct {
 }
 
 type Assistant struct {
-	ID        int64      `json:"id"`
-	Title     string     `json:"title"`
-	Status    StatusType `json:"status"`
-	Provider  *Provider  `json:"provider"`
-	FlowID    int64      `json:"flowId"`
-	UseAgents bool       `json:"useAgents"`
-	CreatedAt time.Time  `json:"createdAt"`
-	UpdatedAt time.Time  `json:"updatedAt"`
+	ID                 int64      `json:"id"`
+	Title              string     `json:"title"`
+	Status             StatusType `json:"status"`
+	Provider           *Provider  `json:"provider"`
+	FlowID             int64      `json:"flowId"`
+	UseAgents          bool       `json:"useAgents"`
+	FlowControlEnabled bool       `json:"flowControlEnabled"`
+	CreatedAt          time.Time  `json:"createdAt"`
+	UpdatedAt          time.Time  `json:"updatedAt"`
 }
 
 type AssistantLog struct {

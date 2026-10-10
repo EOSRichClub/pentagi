@@ -2,11 +2,12 @@ import type { ColumnDef, Row } from '@tanstack/react-table';
 
 import { useMutation, useQuery } from '@apollo/client/react';
 import { ChevronDown, Copy, Ellipsis, Pencil, Plug, Plus, Settings, Trash } from 'lucide-react';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import type { ProviderConfigFragmentFragment } from '@/graphql/types';
+import type { ModelService } from '@/lib/model-services';
 
 import { providerIcons } from '@/components/icons/provider-icon';
 import { AppHeader, AppHeaderActions, AppHeaderContent, AppHeaderTitle } from '@/components/layouts/app/app-header';
@@ -28,6 +29,7 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { Spinner } from '@/components/ui/spinner';
 import { DeleteProviderDocument, ProviderType, SettingsProvidersDocument } from '@/graphql/types';
 import { useTableState } from '@/hooks/use-table-state';
+import { loadModelServices } from '@/lib/model-services';
 import { routes } from '@/lib/routes';
 import { formatDate } from '@/lib/utils/format';
 type Provider = ProviderConfigFragmentFragment;
@@ -53,48 +55,53 @@ const providerTypes = (Object.keys(providerLabels) as ProviderType[]).map((type)
     type,
 }));
 
-export function SettingsProvidersHeader() {
+export function SettingsProvidersHeader({ services = [] }: { services?: ModelService[] }) {
     const navigate = useNavigate();
-    // Cached: the list above already fetched this query, so the read is local.
-    const { data } = useQuery(SettingsProvidersDocument);
-    const enabled = data?.settingsProviders?.enabled;
-    // Only offer types whose API key is configured — a disabled-type provider is unusable
-    // for flows (the create form guards the same against a hand-typed ?type=). Empty while
-    // the query is in flight or when no key is configured anywhere.
-    const availableTypes = providerTypes.filter(({ type }) => enabled?.[type as keyof typeof enabled]);
 
-    const handleProviderCreate = (providerType: string) => {
-        navigate(routes.settings.newProvider({ type: providerType }));
+    const availableServices = services.filter((service) => service.credentials.some((item) => item.enabled));
+
+    const handleProviderCreate = (service: ModelService) => {
+        navigate(
+            routes.settings.newProvider({
+                serviceId: service.id.toString(),
+                type: service.providerType,
+            }),
+        );
     };
 
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
                 <Button
-                    aria-label="Create provider — choose type"
+                    aria-label="添加模型提供商"
                     className="w-8 shrink-0 px-0 md:w-auto md:px-3"
                     size="sm"
                     variant="secondary"
                 >
                     <Plus />
-                    <span className="hidden md:inline">Create Provider</span>
+                    <span className="hidden md:inline">添加模型提供商</span>
                     <ChevronDown className="hidden size-4 md:inline-flex" />
                 </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-                {availableTypes.length === 0 ? (
-                    <DropdownMenuItem disabled>No available provider types</DropdownMenuItem>
+                {availableServices.length === 0 ? (
+                    <DropdownMenuItem onClick={() => navigate(routes.settings.modelApiKeys)}>
+                        请先添加模型 API 密钥
+                    </DropdownMenuItem>
                 ) : (
-                    availableTypes.map(({ label, type }) => {
-                        const Icon = providerIcons[type]?.icon;
+                    availableServices.map((service) => {
+                        const Icon = providerIcons[service.providerType]?.icon;
 
                         return (
                             <DropdownMenuItem
-                                key={type}
-                                onClick={() => handleProviderCreate(type)}
+                                key={service.id}
+                                onClick={() => handleProviderCreate(service)}
                             >
                                 {Icon && <Icon />}
-                                {label}
+                                <span>{service.name}</span>
+                                <span className="text-muted-foreground text-xs">
+                                    {providerLabels[service.providerType]}
+                                </span>
                             </DropdownMenuItem>
                         );
                     })
@@ -109,7 +116,14 @@ function SettingsProviders() {
     const [deleteProvider, { loading: isDeleteLoading }] = useMutation(DeleteProviderDocument);
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
     const [deletingProvider, setDeletingProvider] = useState<null | Provider>(null);
+    const [services, setServices] = useState<ModelService[]>([]);
     const navigate = useNavigate();
+
+    useEffect(() => {
+        void loadModelServices()
+            .then(setServices)
+            .catch((error: unknown) => toast.error(error instanceof Error ? error.message : '加载模型服务和密钥失败'));
+    }, []);
 
     const { filter, pageIndex: currentPage, setFilter, setPage: handlePageChange } = useTableState();
 
@@ -196,6 +210,29 @@ function SettingsProviders() {
                 meta: { searchable: true },
                 minSize: 110,
                 size: 160,
+            },
+            {
+                accessorFn: (provider) => {
+                    const serviceId = provider.agents?.modelServiceId;
+                    const credentialId = provider.agents?.modelCredentialId;
+                    const service = services.find((item) => item.id.toString() === serviceId?.toString());
+                    const credential = service?.credentials.find(
+                        (item) => item.id.toString() === credentialId?.toString(),
+                    );
+
+                    return service ? `${service.name} / ${credential?.name ?? '未选择密钥'}` : '旧版环境变量配置';
+                },
+                cell: ({ getValue }) => <div className="max-w-64 truncate text-sm">{getValue<string>()}</div>,
+                header: ({ column }) => (
+                    <DataTableColumnHeader
+                        column={column}
+                        title="模型服务 / 密钥"
+                    />
+                ),
+                id: 'binding',
+                meta: { searchable: true },
+                minSize: 160,
+                size: 240,
             },
             {
                 accessorKey: 'createdAt',
@@ -297,7 +334,14 @@ function SettingsProviders() {
                 size: 48,
             },
         ],
-        [handleProviderClone, handleProviderDeleteDialogOpen, handleProviderEdit, isDeleteLoading, deletingProvider],
+        [
+            handleProviderClone,
+            handleProviderDeleteDialogOpen,
+            handleProviderEdit,
+            isDeleteLoading,
+            deletingProvider,
+            services,
+        ],
     );
 
     const renderSubComponent = ({ row }: { row: Row<Provider> }) => {
@@ -319,7 +363,15 @@ function SettingsProviders() {
             return Object.entries(obj as Record<string, unknown>)
                 .filter(([key, value]) => key !== '__typename' && !!value)
                 .flatMap(([key, value]) => {
-                    const label = `${prefix ? `${prefix} ` : ''}${getName(key)}`;
+                    const rawLabel = `${prefix ? `${prefix} ` : ''}${getName(key)}`;
+                    const localizedLabels: Record<string, string> = {
+                        Json: 'JSON',
+                        'Price Cache Read': '缓存读取价格',
+                        'Price Cache Write': '缓存写入价格',
+                        'Price Input': '输入价格',
+                        'Price Output': '输出价格',
+                    };
+                    const label = localizedLabels[rawLabel] ?? rawLabel;
 
                     return typeof value === 'object'
                         ? getFields(value, label)
@@ -399,7 +451,7 @@ function SettingsProviders() {
                 <AppHeaderTitle icon={<Plug className="size-4 shrink-0" />}>Providers</AppHeaderTitle>
             </AppHeaderContent>
             <AppHeaderActions>
-                <SettingsProvidersHeader />
+                <SettingsProvidersHeader services={services} />
             </AppHeaderActions>
         </AppHeader>
     );

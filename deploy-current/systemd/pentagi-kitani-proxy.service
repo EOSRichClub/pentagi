@@ -1,0 +1,40 @@
+[Unit]
+Description=PentAGI Kitani scoped reverse proxy
+Wants=network-online.target mihomo.service
+After=network-online.target mihomo.service
+
+[Service]
+Type=simple
+DynamicUser=yes
+Environment=LISTEN_ADDRESS=172.20.0.1
+Environment=LISTEN_PORT=18445
+Environment=UPSTREAM_PROXY=http://127.0.0.1:7890
+Environment=UPSTREAM_ORIGIN=https://api.kitani.ai
+Environment=MIHOMO_GROUP=KITANI_ROUTE
+Environment=RETRY_WINDOW_SECONDS=300
+Environment=CIRCUIT_OPEN_SECONDS=120
+Environment=DIRECT_FALLBACK=true
+ExecStart=/usr/bin/python3 /usr/local/libexec/pentagi_kitani_proxy.py
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=127.0.0.0/8
+IPAddressAllow=172.20.0.0/16
+
+[Install]
+WantedBy=multi-user.target

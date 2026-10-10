@@ -28,6 +28,8 @@ describe('extraBody JSON validation', () => {
 
 const formWithExtraBody = (extraBody: string) => ({
     agents: { simple: { extraBody, model: 'm' } },
+    modelCredentialId: '20',
+    modelServiceId: '10',
     name: 'provider',
     type: 'openai' as ProviderType,
 });
@@ -72,10 +74,14 @@ describe('extraBody load → submit round-trip', () => {
 
         const { agents } = transformFormToGraphQL({
             agents: normalized,
+            modelCredentialId: '20',
+            modelServiceId: '10',
             name: 'provider',
             type: 'openai' as ProviderType,
         });
 
         expect(agents.simple.extraBody).toEqual(original);
+        expect(agents.modelServiceId).toBe('10');
+        expect(agents.modelCredentialId).toBe('20');
     });
 });

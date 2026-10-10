@@ -56,6 +56,7 @@ type Config struct {
 	DockerDefaultImage           string `env:"DOCKER_DEFAULT_IMAGE" envDefault:"debian:latest"`
 	DockerDefaultImageForPentest string `env:"DOCKER_DEFAULT_IMAGE_FOR_PENTEST" envDefault:"vxcontrol/kali-linux"`
 	TerminalToolTimeout          int    `env:"TERMINAL_TOOL_TIMEOUT" envDefault:"1200"`
+	WorkerProxyURL               string `env:"WORKER_PROXY_URL"`
 
 	// === API Server Configuration ===
 	ServerPort   int    `env:"SERVER_PORT" envDefault:"8080"`
@@ -386,6 +387,29 @@ func (c *Config) WorkerDockerEnv() []string {
 	}
 
 	return env
+}
+
+// WorkerProxyEnv returns the conventional proxy variables injected into every
+// agent sandbox. The host also enforces transparent proxying and a direct-
+// egress kill switch; these variables preserve host names for proxy-side DNS
+// resolution in clients such as curl, wget, apt and language package managers.
+func (c *Config) WorkerProxyEnv() []string {
+	if c == nil || strings.TrimSpace(c.WorkerProxyURL) == "" {
+		return nil
+	}
+
+	proxyURL := strings.TrimSpace(c.WorkerProxyURL)
+	noProxy := "localhost,127.0.0.1,::1"
+	return []string{
+		"HTTP_PROXY=" + proxyURL,
+		"HTTPS_PROXY=" + proxyURL,
+		"ALL_PROXY=" + proxyURL,
+		"NO_PROXY=" + noProxy,
+		"http_proxy=" + proxyURL,
+		"https_proxy=" + proxyURL,
+		"all_proxy=" + proxyURL,
+		"no_proxy=" + noProxy,
+	}
 }
 
 // WorkerDockerCertPath returns the TLS certificate directory that must be made

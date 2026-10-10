@@ -19,6 +19,7 @@ import (
 	"pentagi/pkg/database"
 	"pentagi/pkg/docker"
 	"pentagi/pkg/graphiti"
+	"pentagi/pkg/modelcredentials"
 	obs "pentagi/pkg/observability"
 	"pentagi/pkg/providers/embeddings"
 	"pentagi/pkg/providers/pconfig"
@@ -125,23 +126,28 @@ type ProviderController interface {
 
 	TestAgent(
 		ctx context.Context,
+		userID int64,
 		prvtype provider.ProviderType,
 		agentType pconfig.ProviderOptionsType,
 		config *pconfig.AgentConfig,
+		modelServiceID, modelCredentialID int64,
 	) (tester.AgentTestResults, error)
 	TestProvider(
 		ctx context.Context,
+		userID int64,
 		prvtype provider.ProviderType,
 		config *pconfig.ProviderConfig,
 	) (tester.ProviderTestResults, error)
+	CredentialStore() *modelcredentials.Store
 }
 
 type providerController struct {
-	db             database.Querier
-	cfg            *config.Config
-	docker         docker.DockerClient
-	embedder       embeddings.Embedder
-	graphitiClient *graphiti.Client
+	db              database.Querier
+	cfg             *config.Config
+	docker          docker.DockerClient
+	embedder        embeddings.Embedder
+	graphitiClient  *graphiti.Client
+	credentialStore *modelcredentials.Store
 
 	startCallNumber *atomic.Int64
 
@@ -202,6 +208,10 @@ func NewProviderController(
 	if err != nil {
 		return nil, err
 	}
+	credentialStore, err := modelcredentials.New(cfg, db)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create model credential store: %w", err)
+	}
 
 	for _, e := range providerRegistry {
 		if !e.Enabled(cfg) {
@@ -249,11 +259,12 @@ func NewProviderController(
 	}
 
 	pc := &providerController{
-		db:             db,
-		cfg:            cfg,
-		docker:         docker,
-		embedder:       embedder,
-		graphitiClient: graphitiClient,
+		db:              db,
+		cfg:             cfg,
+		docker:          docker,
+		embedder:        embedder,
+		graphitiClient:  graphitiClient,
+		credentialStore: credentialStore,
 
 		startCallNumber: newAtomicInt64(0), // 0 means to make it random
 
@@ -275,6 +286,9 @@ func NewProviderController(
 		logrus.WithError(err).Warn("failed to fetch users for provider seeding")
 	} else {
 		for _, u := range users {
+			if err := pc.credentialStore.EnsureBuiltins(ctx, u.ID); err != nil {
+				logrus.WithError(err).Warnf("failed to seed model services for user %d", u.ID)
+			}
 			if err := pc.SeedDefaultProviders(ctx, u.ID); err != nil {
 				logrus.WithError(err).Warnf("failed to seed default providers for user %d", u.ID)
 			}
@@ -441,6 +455,10 @@ func (pc *providerController) GraphitiClient() *graphiti.Client {
 	return pc.graphitiClient
 }
 
+func (pc *providerController) CredentialStore() *modelcredentials.Store {
+	return pc.credentialStore
+}
+
 func (pc *providerController) NewAssistantProvider(
 	ctx context.Context,
 	prvname provider.ProviderName,
@@ -603,7 +621,7 @@ func (pc *providerController) GetProvider(
 		return nil, fmt.Errorf("failed to get provider '%s' from database: %w", prvname, err)
 	}
 	if err == nil {
-		return pc.NewProvider(prv)
+		return pc.newProvider(ctx, prv)
 	}
 
 	// Fall back to built-in default providers
@@ -628,7 +646,7 @@ func (pc *providerController) GetProviders(
 	}
 
 	for _, prv := range providers {
-		p, err := pc.NewProvider(prv)
+		p, err := pc.newProvider(ctx, prv)
 		if err != nil {
 			// Any unbuildable saved provider (its type is disabled, or its stored
 			// config is stale/invalid) is skipped, not propagated — one bad row must
@@ -646,17 +664,16 @@ func (pc *providerController) GetProviders(
 }
 
 func (pc *providerController) NewProvider(prv database.Provider) (provider.Provider, error) {
+	return pc.newProvider(context.Background(), prv)
+}
+
+func (pc *providerController) newProvider(ctx context.Context, prv database.Provider) (provider.Provider, error) {
 	if len(prv.Config) == 0 {
 		prv.Config = []byte(pconfig.EmptyProviderConfigRaw)
 	}
 
-	// Check if the provider type is available via check default one
 	providerName := provider.ProviderName(prv.Name)
 	providerType := provider.ProviderType(prv.Type)
-	if !pc.ListTypes().Contains(providerType) {
-		return nil, fmt.Errorf("provider type '%s' is not available", prv.Type)
-	}
-
 	e, ok := entryForType(providerType)
 	if !ok {
 		return nil, fmt.Errorf("unknown provider type: %s", prv.Type)
@@ -666,8 +683,14 @@ func (pc *providerController) NewProvider(prv database.Provider) (provider.Provi
 	if err != nil {
 		return nil, fmt.Errorf("failed to build %s provider config: %w", providerType, err)
 	}
-
-	return e.New(pc.cfg, providerName, config)
+	if config.ModelCredentialID == 0 && !pc.ListTypes().Contains(providerType) {
+		return nil, fmt.Errorf("provider type '%s' is not available without a bound API key", prv.Type)
+	}
+	runtimeCfg, err := pc.runtimeConfig(ctx, prv.UserID, providerType, config)
+	if err != nil {
+		return nil, err
+	}
+	return e.New(runtimeCfg, providerName, config)
 }
 
 func (pc *providerController) SeedDefaultProviders(ctx context.Context, userID int64) error {
@@ -741,6 +764,9 @@ func (pc *providerController) CreateProvider(
 	if err = config.Validate(); err != nil {
 		return result, fmt.Errorf("invalid provider config: %w", err)
 	}
+	if _, err = pc.runtimeConfig(ctx, userID, prvtype, config); err != nil {
+		return result, fmt.Errorf("invalid model service or API key binding: %w", err)
+	}
 
 	rawConfig, err := json.Marshal(config)
 	if err != nil {
@@ -791,6 +817,9 @@ func (pc *providerController) UpdateProvider(
 	if err = config.Validate(); err != nil {
 		return result, fmt.Errorf("invalid provider config: %w", err)
 	}
+	if _, err = pc.runtimeConfig(ctx, userID, prvtype, config); err != nil {
+		return result, fmt.Errorf("invalid model service or API key binding: %w", err)
+	}
 
 	rawConfig, err := json.Marshal(config)
 	if err != nil {
@@ -831,9 +860,11 @@ func (pc *providerController) DeleteProvider(
 
 func (pc *providerController) TestAgent(
 	ctx context.Context,
+	userID int64,
 	prvtype provider.ProviderType,
 	agentType pconfig.ProviderOptionsType,
 	config *pconfig.AgentConfig,
+	modelServiceID, modelCredentialID int64,
 ) (tester.AgentTestResults, error) {
 	ctx, span := obs.Observer.NewSpan(ctx, obs.SpanKindInternal, "providers.TestAgent")
 	defer span.End()
@@ -841,7 +872,7 @@ func (pc *providerController) TestAgent(
 	var result tester.AgentTestResults
 
 	// Create provider config with single agent configuration
-	testConfig := &pconfig.ProviderConfig{}
+	testConfig := &pconfig.ProviderConfig{ModelServiceID: modelServiceID, ModelCredentialID: modelCredentialID}
 
 	// Set the agent config to the appropriate field based on agent type
 	switch agentType {
@@ -883,7 +914,7 @@ func (pc *providerController) TestAgent(
 
 	// Create temporary provider for testing using existing provider logic
 	providerName := provider.ProviderName("test-provider")
-	tempProvider, err := pc.buildProviderFromConfig(prvtype, providerName, patchedConfig)
+	tempProvider, err := pc.buildProviderFromConfig(ctx, userID, prvtype, providerName, patchedConfig)
 	if err != nil {
 		return result, fmt.Errorf("failed to create provider for testing: %w", err)
 	}
@@ -937,6 +968,7 @@ func (pc *providerController) TestAgent(
 
 func (pc *providerController) TestProvider(
 	ctx context.Context,
+	userID int64,
 	prvtype provider.ProviderType,
 	config *pconfig.ProviderConfig,
 ) (tester.ProviderTestResults, error) {
@@ -953,7 +985,7 @@ func (pc *providerController) TestProvider(
 
 	// Create provider for testing
 	providerName := provider.ProviderName("test-provider")
-	testProvider, err := pc.buildProviderFromConfig(prvtype, providerName, patchedConfig)
+	testProvider, err := pc.buildProviderFromConfig(ctx, userID, prvtype, providerName, patchedConfig)
 	if err != nil {
 		return results, fmt.Errorf("failed to create provider for testing: %w", err)
 	}
@@ -1041,6 +1073,8 @@ func (pc *providerController) patchProviderConfig(
 }
 
 func (pc *providerController) buildProviderFromConfig(
+	ctx context.Context,
+	userID int64,
 	prvtype provider.ProviderType,
 	prvname provider.ProviderName,
 	config *pconfig.ProviderConfig,
@@ -1050,7 +1084,69 @@ func (pc *providerController) buildProviderFromConfig(
 		return nil, fmt.Errorf("unknown provider type: %s", prvtype)
 	}
 
-	return e.New(pc.cfg, prvname, config)
+	if config.ModelCredentialID == 0 && !pc.ListTypes().Contains(prvtype) {
+		return nil, fmt.Errorf("provider type '%s' is not available without a bound API key", prvtype)
+	}
+	runtimeCfg, err := pc.runtimeConfig(ctx, userID, prvtype, config)
+	if err != nil {
+		return nil, err
+	}
+	return e.New(runtimeCfg, prvname, config)
+}
+
+func (pc *providerController) runtimeConfig(
+	ctx context.Context,
+	userID int64,
+	prvtype provider.ProviderType,
+	providerConfig *pconfig.ProviderConfig,
+) (*config.Config, error) {
+	if providerConfig.ModelServiceID == 0 && providerConfig.ModelCredentialID == 0 {
+		return pc.cfg, nil
+	}
+	if providerConfig.ModelServiceID == 0 || providerConfig.ModelCredentialID == 0 {
+		return nil, fmt.Errorf("model service and API key must be selected together")
+	}
+	credential, err := pc.credentialStore.Resolve(ctx, userID, providerConfig.ModelCredentialID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve model API key: %w", err)
+	}
+	if credential.ServiceID != providerConfig.ModelServiceID {
+		return nil, fmt.Errorf("selected API key does not belong to the selected model service")
+	}
+	if credential.ProviderType != prvtype {
+		return nil, fmt.Errorf("model service protocol '%s' does not match provider type '%s'", credential.ProviderType, prvtype)
+	}
+
+	runtimeCfg := *pc.cfg
+	switch prvtype {
+	case provider.ProviderOpenAI:
+		runtimeCfg.OpenAIKey, runtimeCfg.OpenAIServerURL = credential.Secret, credential.BaseURL
+	case provider.ProviderAnthropic:
+		runtimeCfg.AnthropicAPIKey, runtimeCfg.AnthropicServerURL = credential.Secret, credential.BaseURL
+	case provider.ProviderGemini:
+		runtimeCfg.GeminiAPIKey, runtimeCfg.GeminiServerURL = credential.Secret, credential.BaseURL
+	case provider.ProviderOllama:
+		runtimeCfg.OllamaServerAPIKey, runtimeCfg.OllamaServerURL = credential.Secret, credential.BaseURL
+	case provider.ProviderCustom:
+		runtimeCfg.LLMServerKey, runtimeCfg.LLMServerURL = credential.Secret, credential.BaseURL
+		runtimeCfg.LLMServerProvider = ""
+	case provider.ProviderDeepSeek:
+		runtimeCfg.DeepSeekAPIKey, runtimeCfg.DeepSeekServerURL = credential.Secret, credential.BaseURL
+	case provider.ProviderGLM:
+		runtimeCfg.GLMAPIKey, runtimeCfg.GLMServerURL = credential.Secret, credential.BaseURL
+	case provider.ProviderKimi:
+		runtimeCfg.KimiAPIKey, runtimeCfg.KimiServerURL = credential.Secret, credential.BaseURL
+	case provider.ProviderQwen:
+		runtimeCfg.QwenAPIKey, runtimeCfg.QwenServerURL = credential.Secret, credential.BaseURL
+	case provider.ProviderMiniMax:
+		runtimeCfg.MiniMaxAPIKey, runtimeCfg.MiniMaxServerURL = credential.Secret, credential.BaseURL
+	default:
+		return nil, fmt.Errorf("provider type '%s' does not support API key binding", prvtype)
+	}
+	raw := append([]byte(nil), providerConfig.GetRawConfig()...)
+	raw = append(raw, []byte("|credential-version:"+credential.Version)...)
+	providerConfig.SetRawConfig(raw)
+	return &runtimeCfg, nil
 }
 
 func newAtomicInt64(seed int64) *atomic.Int64 {

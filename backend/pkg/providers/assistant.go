@@ -117,17 +117,42 @@ func (ap *assistantProvider) PrepareAgentChain(ctx context.Context) (int64, erro
 		return 0, fmt.Errorf("failed to get assistant system prompt: %w", err)
 	}
 
-	optAgentType := pconfig.OptionsTypeAssistant
-	msgChainType := database.MsgchainTypeAssistant
-	ap.msgChainID, _, err = ap.fp.restoreChain(
-		ctx, nil, nil, optAgentType, msgChainType, systemPrompt, "",
-	)
+	ap.msgChainID, err = ap.createFreshAgentChain(ctx, systemPrompt)
 	if err != nil {
-		logger.WithError(err).Error("failed to restore assistant msg chain")
-		return 0, fmt.Errorf("failed to restore assistant msg chain: %w", err)
+		logger.WithError(err).Error("failed to create assistant msg chain")
+		return 0, fmt.Errorf("failed to create assistant msg chain: %w", err)
 	}
 
 	return ap.msgChainID, nil
+}
+
+// createFreshAgentChain deliberately does not use flowProvider.restoreChain.
+// A newly-created assistant is a new conversation, even when the flow already
+// has older assistants. Restoring by (flow_id, type) would otherwise pick the
+// latest assistant chain from that flow, mix two conversations, and run an
+// unnecessary LLM summarization in the synchronous create request.
+func (ap *assistantProvider) createFreshAgentChain(ctx context.Context, systemPrompt string) (int64, error) {
+	chain := []llms.MessageContent{
+		llms.TextParts(llms.ChatMessageTypeSystem, systemPrompt),
+	}
+
+	chainBlob, err := json.Marshal(chain)
+	if err != nil {
+		return 0, fmt.Errorf("failed to marshal assistant msg chain: %w", err)
+	}
+
+	msgChain, err := ap.fp.db.CreateMsgChain(ctx, database.CreateMsgChainParams{
+		Type:          database.MsgchainTypeAssistant,
+		Model:         ap.fp.Model(pconfig.OptionsTypeAssistant),
+		ModelProvider: string(ap.fp.Type()),
+		Chain:         chainBlob,
+		FlowID:        ap.fp.flowID,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("failed to persist assistant msg chain: %w", err)
+	}
+
+	return msgChain.ID, nil
 }
 
 func (ap *assistantProvider) PerformAgentChain(ctx context.Context) error {
@@ -145,6 +170,12 @@ func (ap *assistantProvider) PerformAgentChain(ctx context.Context) error {
 	if err != nil {
 		logger.WithError(err).Error("failed to get assistant use agents")
 		return fmt.Errorf("failed to get assistant use agents: %w", err)
+	}
+
+	flowControlEnabled, err := ap.getAssistantFlowControlEnabled(ctx)
+	if err != nil {
+		logger.WithError(err).Error("failed to get assistant flow control setting")
+		return fmt.Errorf("failed to get assistant flow control setting: %w", err)
 	}
 
 	msgChain, err := ap.fp.DB().GetMsgChain(ctx, ap.msgChainID)
@@ -211,15 +242,16 @@ func (ap *assistantProvider) PerformAgentChain(ctx context.Context) error {
 	ctx, _ = executorAgent.Observation(ctx)
 
 	cfg := tools.AssistantExecutorConfig{
-		UseAgents:   useAgents,
-		Adviser:     adviser,
-		Coder:       coder,
-		Installer:   installer,
-		Memorist:    memorist,
-		Pentester:   pentester,
-		Searcher:    searcher,
-		Summarizer:  ap.fp.GetSummarizeResultHandler(nil, nil),
-		FlowManager: ap.buildFlowManagerHandlers(),
+		UseAgents:          useAgents,
+		FlowManagerEnabled: flowControlEnabled,
+		Adviser:            adviser,
+		Coder:              coder,
+		Installer:          installer,
+		Memorist:           memorist,
+		Pentester:          pentester,
+		Searcher:           searcher,
+		Summarizer:         ap.fp.GetSummarizeResultHandler(nil, nil),
+		FlowManager:        ap.buildFlowManagerHandlers(flowControlEnabled),
 	}
 
 	executor, err := ap.fp.Executor().GetAssistantExecutor(cfg)
@@ -309,6 +341,10 @@ func (ap *assistantProvider) getAssistantUseAgents(ctx context.Context) (bool, e
 	return ap.fp.DB().GetAssistantUseAgents(ctx, ap.id)
 }
 
+func (ap *assistantProvider) getAssistantFlowControlEnabled(ctx context.Context) (bool, error) {
+	return ap.fp.DB().GetAssistantFlowControlEnabled(ctx, ap.id)
+}
+
 func (ap *assistantProvider) getAssistantSystemPrompt(ctx context.Context) (string, error) {
 	logger := logrus.WithContext(ctx).WithFields(logrus.Fields{
 		"provider":     ap.fp.Type(),
@@ -320,6 +356,12 @@ func (ap *assistantProvider) getAssistantSystemPrompt(ctx context.Context) (stri
 	if err != nil {
 		logger.WithError(err).Error("failed to get assistant use agents")
 		return "", fmt.Errorf("failed to get assistant use agents: %w", err)
+	}
+
+	flowControlEnabled, err := ap.getAssistantFlowControlEnabled(ctx)
+	if err != nil {
+		logger.WithError(err).Error("failed to get assistant flow control setting")
+		return "", fmt.Errorf("failed to get assistant flow control setting: %w", err)
 	}
 
 	executionContext, err := ap.getAssistantExecutionContext(ctx)
@@ -352,7 +394,7 @@ func (ap *assistantProvider) getAssistantSystemPrompt(ctx context.Context) (stri
 		"ExecutionContext":           executionContext,
 		"Lang":                       ap.fp.Language(),
 		"CurrentTime":                getCurrentTime(),
-		"FlowManagerEnabled":         ap.flowWorker != nil,
+		"FlowManagerEnabled":         ap.flowWorker != nil && flowControlEnabled,
 		"GetFlowStatusToolName":      tools.GetFlowStatusToolName,
 		"StopFlowToolName":           tools.StopFlowToolName,
 		"SubmitFlowInputToolName":    tools.SubmitFlowInputToolName,
@@ -416,10 +458,10 @@ func (ap *assistantProvider) getAssistantExecutionContext(ctx context.Context) (
 }
 
 // buildFlowManagerHandlers constructs FlowManagerHandlers from the injected flowWorker.
-// Returns zero-value (no-op) handlers when flowWorker is nil, so the 4 flow-management
-// tools are simply not registered in the assistant executor.
-func (ap *assistantProvider) buildFlowManagerHandlers() tools.FlowManagerHandlers {
-	if ap.flowWorker == nil {
+// Returns zero-value handlers when control is disabled or flowWorker is nil, so
+// flow-management tools are not registered in the assistant executor.
+func (ap *assistantProvider) buildFlowManagerHandlers(flowControlEnabled bool) tools.FlowManagerHandlers {
+	if ap.flowWorker == nil || !flowControlEnabled {
 		return tools.FlowManagerHandlers{}
 	}
 

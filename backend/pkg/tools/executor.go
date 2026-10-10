@@ -15,6 +15,7 @@ import (
 	"pentagi/pkg/observability/langfuse"
 	"pentagi/pkg/schema"
 
+	"github.com/sirupsen/logrus"
 	"github.com/vxcontrol/langchaingo/documentloaders"
 	"github.com/vxcontrol/langchaingo/llms"
 	"github.com/vxcontrol/langchaingo/textsplitter"
@@ -350,9 +351,18 @@ func (ce *customExecutor) Execute(
 		return "", err
 	}
 
+	// The tool has already run and its result has been persisted in the tool-call
+	// log at this point. Long-term memory is an optional secondary sink, so an
+	// embedding/vector-store outage must not make the provider retry the tool.
+	// Retrying here is especially dangerous for tools with side effects and also
+	// creates duplicate message rows and unnecessary token usage.
 	if err := ce.storeToolResult(ctx, name, result, args); err != nil {
-		obsWrapper.end(result, err, time.Since(startTime).Seconds())
-		return "", fmt.Errorf("failed to store tool result in long-term memory: %w", err)
+		logrus.WithContext(ctx).WithError(err).WithFields(enrichLogrusFields(
+			ce.flowID,
+			ce.taskID,
+			ce.subtaskID,
+			logrus.Fields{"tool_name": name},
+		)).Warn("failed to store tool result in long-term memory; continuing with the tool result")
 	}
 
 	if msgID != 0 {

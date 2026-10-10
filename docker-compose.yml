@@ -14,6 +14,13 @@ networks:
   pentagi-network:
     driver: bridge
     name: pentagi-network
+  # Dedicated, policy-routed network for agent sandboxes and the web scraper.
+  # Create it on the host before starting Compose. Its gateway is protected by
+  # the host-side PentAGI egress rules, so task traffic cannot fall back to the
+  # server's direct public route when the proxy is unavailable.
+  pentagi-egress:
+    external: true
+    name: ${PENTAGI_EGRESS_NETWORK:-pentagi-egress}
   observability-network:
     driver: bridge
     name: observability-network
@@ -195,6 +202,7 @@ services:
       - DOCKER_WORK_DIR=${DOCKER_WORK_DIR:-}
       - DOCKER_DEFAULT_IMAGE=${DOCKER_DEFAULT_IMAGE:-}
       - DOCKER_DEFAULT_IMAGE_FOR_PENTEST=${DOCKER_DEFAULT_IMAGE_FOR_PENTEST:-}
+      - WORKER_PROXY_URL=${WORKER_PROXY_URL:-}
     logging:
       options:
         max-size: 50m
@@ -276,6 +284,11 @@ services:
       - MAX_CONCURRENT_SESSIONS=${LOCAL_SCRAPER_MAX_CONCURRENT_SESSIONS:-10}
       - USERNAME=${LOCAL_SCRAPER_USERNAME:-someuser}
       - PASSWORD=${LOCAL_SCRAPER_PASSWORD:-somepass}
+      - HTTP_PROXY=${WORKER_PROXY_URL:-}
+      - HTTPS_PROXY=${WORKER_PROXY_URL:-}
+      - ALL_PROXY=${WORKER_PROXY_URL:-}
+      - NO_PROXY=localhost,127.0.0.1,::1,scraper,pentagi
+      - DEFAULT_LAUNCH_ARGS=${SCRAPER_DEFAULT_LAUNCH_ARGS:-[]}
     logging:
       options:
         max-size: 50m
@@ -283,5 +296,7 @@ services:
     volumes:
       - scraper-ssl:/usr/src/app/ssl
     networks:
-      - pentagi-network
+      pentagi-network: {}
+      pentagi-egress:
+        gw_priority: 1
     shm_size: 2g

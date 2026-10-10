@@ -907,6 +907,7 @@ type Assistant struct {
 	DeletedAt          sql.NullTime    `json:"deleted_at"`
 	ModelProviderType  ProviderType    `json:"model_provider_type"`
 	ToolCallIDTemplate string          `json:"tool_call_id_template"`
+	FlowControlEnabled bool            `json:"flow_control_enabled"`
 }
 
 type Assistantlog struct {

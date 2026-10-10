@@ -209,15 +209,16 @@ type CustomExecutorConfig struct {
 }
 
 type AssistantExecutorConfig struct {
-	UseAgents   bool
-	Adviser     ExecutorHandler
-	Coder       ExecutorHandler
-	Installer   ExecutorHandler
-	Memorist    ExecutorHandler
-	Pentester   ExecutorHandler
-	Searcher    ExecutorHandler
-	Summarizer  SummarizeHandler
-	FlowManager FlowManagerHandlers
+	UseAgents          bool
+	FlowManagerEnabled bool
+	Adviser            ExecutorHandler
+	Coder              ExecutorHandler
+	Installer          ExecutorHandler
+	Memorist           ExecutorHandler
+	Pentester          ExecutorHandler
+	Searcher           ExecutorHandler
+	Summarizer         SummarizeHandler
+	FlowManager        FlowManagerHandlers
 }
 
 // FlowManagerHandlers holds optional callbacks for automation flow control.
@@ -521,6 +522,11 @@ func (fte *flowToolsExecutor) Prepare(ctx context.Context) error {
 	}
 
 	containerName := PrimaryTerminalName(fte.cfg.TenantPrefix(), fte.flowID)
+	// A pentest worker can run highly parallel scanners or a broken package
+	// wrapper. Keep one worker from exhausting a small host (the standard
+	// deployment target is commonly 4 vCPU / 8 GiB) while leaving enough room
+	// for nmap, nuclei, compilers, and browser tooling.
+	workerPidsLimit := int64(128)
 	cnt, err := fte.docker.RunContainer(
 		ctx,
 		containerName,
@@ -533,6 +539,12 @@ func (fte *flowToolsExecutor) Prepare(ctx context.Context) error {
 		&container.HostConfig{
 			CapDrop: []string{"ALL"},
 			CapAdd:  capAdd,
+			Resources: container.Resources{
+				PidsLimit:  &workerPidsLimit,
+				Memory:     3 << 30,
+				MemorySwap: 4 << 30,
+				NanoCPUs:   2_000_000_000,
+			},
 		},
 	)
 	if err != nil {
@@ -952,32 +964,34 @@ func (fte *flowToolsExecutor) GetAssistantExecutor(cfg AssistantExecutorConfig) 
 		handlers[WebSearchToolName] = webSearch.Handle
 	}
 
-	flowStatus := NewFlowStatusTool(fte.flowID, fte.db, cfg.Summarizer)
-	definitions = append(definitions, registryDefinitions[GetFlowStatusToolName])
-	handlers[GetFlowStatusToolName] = flowStatus.Handle
+	if cfg.FlowManagerEnabled {
+		flowStatus := NewFlowStatusTool(fte.flowID, fte.db, cfg.Summarizer)
+		definitions = append(definitions, registryDefinitions[GetFlowStatusToolName])
+		handlers[GetFlowStatusToolName] = flowStatus.Handle
 
-	if cfg.FlowManager.StopFlow != nil {
-		stopFlow := NewStopFlowTool(fte.flowID, fte.db, cfg.FlowManager.StopFlow)
-		definitions = append(definitions, registryDefinitions[StopFlowToolName])
-		handlers[StopFlowToolName] = stopFlow.Handle
-	}
+		if cfg.FlowManager.StopFlow != nil {
+			stopFlow := NewStopFlowTool(fte.flowID, fte.db, cfg.FlowManager.StopFlow)
+			definitions = append(definitions, registryDefinitions[StopFlowToolName])
+			handlers[StopFlowToolName] = stopFlow.Handle
+		}
 
-	if cfg.FlowManager.SendFlowInput != nil {
-		submitInput := NewSubmitFlowInputTool(fte.flowID, fte.db, cfg.FlowManager.SendFlowInput)
-		definitions = append(definitions, registryDefinitions[SubmitFlowInputToolName])
-		handlers[SubmitFlowInputToolName] = submitInput.Handle
-	}
+		if cfg.FlowManager.SendFlowInput != nil {
+			submitInput := NewSubmitFlowInputTool(fte.flowID, fte.db, cfg.FlowManager.SendFlowInput)
+			definitions = append(definitions, registryDefinitions[SubmitFlowInputToolName])
+			handlers[SubmitFlowInputToolName] = submitInput.Handle
+		}
 
-	if cfg.FlowManager.PatchSubtasks != nil {
-		patchSubtasks := NewPatchFlowSubtasksTool(fte.flowID, fte.db, cfg.FlowManager.PatchSubtasks)
-		definitions = append(definitions, registryDefinitions[PatchFlowSubtasksToolName])
-		handlers[PatchFlowSubtasksToolName] = patchSubtasks.Handle
-	}
+		if cfg.FlowManager.PatchSubtasks != nil {
+			patchSubtasks := NewPatchFlowSubtasksTool(fte.flowID, fte.db, cfg.FlowManager.PatchSubtasks)
+			definitions = append(definitions, registryDefinitions[PatchFlowSubtasksToolName])
+			handlers[PatchFlowSubtasksToolName] = patchSubtasks.Handle
+		}
 
-	if cfg.FlowManager.WaitFlow != nil {
-		waitFlowCompletion := NewWaitFlowCompletionTool(fte.flowID, fte.db, cfg.FlowManager.WaitFlow)
-		definitions = append(definitions, registryDefinitions[WaitFlowCompletionToolName])
-		handlers[WaitFlowCompletionToolName] = waitFlowCompletion.Handle
+		if cfg.FlowManager.WaitFlow != nil {
+			waitFlowCompletion := NewWaitFlowCompletionTool(fte.flowID, fte.db, cfg.FlowManager.WaitFlow)
+			definitions = append(definitions, registryDefinitions[WaitFlowCompletionToolName])
+			handlers[WaitFlowCompletionToolName] = waitFlowCompletion.Handle
+		}
 	}
 
 	ce := &customExecutor{

@@ -243,6 +243,7 @@ function Knowledges() {
                 return (
                     <div
                         className="truncate font-medium"
+                        data-pentagi-user-content="true"
                         title={question}
                     >
                         {question}

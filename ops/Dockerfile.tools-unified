@@ -1,0 +1,54 @@
+FROM pentagi-kali-safe:5.0.0-cn-hotfix.1
+
+LABEL org.opencontainers.image.title="PentAGI unified worker tools"
+LABEL org.opencontainers.image.description="Shared worker image derived from observed PentAGI flow tool usage"
+LABEL org.opencontainers.image.version="2026.10.03-1"
+
+USER root
+
+# Common packages that agents repeatedly installed across historical flows.
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        apktool \
+        golang-go \
+        jadx \
+        librsvg2-bin \
+        npm \
+        ripgrep \
+        sshpass \
+        tesseract-ocr \
+        tesseract-ocr-chi-sim \
+        tesseract-ocr-eng \
+        testssl.sh \
+        whois \
+        xvfb \
+        yq \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python packages are installed into the image's existing virtual environment,
+# which is already first on PATH in the parent image.
+RUN python3 -m pip install --no-cache-dir \
+        Pillow \
+        PyJWT \
+        PyMySQL \
+        cairosvg \
+        ddddocr \
+        ds-store \
+        fonttools \
+        lief \
+        openpyxl \
+        patchright \
+        playwright \
+        pycryptodome \
+        pymongo \
+        pytesseract \
+        redis \
+        websocket-client
+
+# Keep a browser binary in the image so new flows do not download it again.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
+RUN python3 -m playwright install chromium \
+    && chmod -R a+rX /opt/playwright-browsers
+
+WORKDIR /work
+CMD ["tail", "-f", "/dev/null"]

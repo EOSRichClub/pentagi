@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { ModelService } from '@/lib/model-services';
+
 import { ProviderType } from '@/graphql/types';
 
 const ALL_TYPES = [
@@ -65,41 +67,70 @@ vi.mock('@/components/layouts/app/app-header', () => {
 
 import SettingsProviders, { SettingsProvidersHeader } from './settings-providers';
 
+const selectableServices: ModelService[] = [
+    {
+        baseUrl: 'https://api.anthropic.test',
+        builtin: true,
+        credentials: [
+            {
+                enabled: true,
+                id: 1,
+                masked: 'sk-••••••001',
+                name: 'Anthropic 主密钥',
+                remark: '',
+                serviceId: 11,
+                source: 'user',
+                usageCount: 0,
+            },
+        ],
+        id: 11,
+        name: 'Anthropic 主服务',
+        providerType: ProviderType.Anthropic,
+    },
+    {
+        baseUrl: 'https://api.openai.test/v1',
+        builtin: true,
+        credentials: [
+            {
+                enabled: true,
+                id: 2,
+                masked: 'sk-••••••002',
+                name: 'OpenAI 主密钥',
+                remark: '',
+                serviceId: 12,
+                source: 'user',
+                usageCount: 0,
+            },
+        ],
+        id: 12,
+        name: 'OpenAI 主服务',
+        providerType: ProviderType.Openai,
+    },
+];
+
 describe('SettingsProvidersHeader create menu', () => {
     beforeEach(() => {
         queryResult.current = { data: makeData([]), error: undefined, loading: false, refetch: () => {} };
     });
 
-    it('offers only provider types whose API key is configured', async () => {
+    it('offers only model services that have an enabled API key', async () => {
         const user = userEvent.setup();
-        render(<SettingsProvidersHeader />);
+        render(<SettingsProvidersHeader services={selectableServices} />);
 
-        await user.click(screen.getByRole('button', { name: /create provider/i }));
+        await user.click(screen.getByRole('button', { name: '添加模型提供商' }));
 
         expect(screen.queryByRole('menuitem', { name: /MiniMax/ })).not.toBeInTheDocument();
-        expect(screen.queryByRole('menuitem', { name: /Custom/ })).not.toBeInTheDocument();
-        expect(screen.getByRole('menuitem', { name: /Anthropic/ })).toBeInTheDocument();
-        expect(screen.getByRole('menuitem', { name: /OpenAI/ })).toBeInTheDocument();
+        expect(screen.getByRole('menuitem', { name: /Anthropic 主服务/ })).toBeInTheDocument();
+        expect(screen.getByRole('menuitem', { name: /OpenAI 主服务/ })).toBeInTheDocument();
     });
 
-    it('shows a placeholder, not an empty menu, when no type is enabled', async () => {
-        queryResult.current = {
-            data: {
-                settingsProviders: {
-                    ...makeData([]).settingsProviders,
-                    enabled: Object.fromEntries(ALL_TYPES.map((type) => [type, false])),
-                },
-            },
-            error: undefined,
-            loading: false,
-            refetch: () => {},
-        };
+    it('links to API key settings when no model service has an enabled key', async () => {
         const user = userEvent.setup();
         render(<SettingsProvidersHeader />);
 
-        await user.click(screen.getByRole('button', { name: /create provider/i }));
+        await user.click(screen.getByRole('button', { name: '添加模型提供商' }));
 
-        expect(screen.getByRole('menuitem', { name: /no available provider types/i })).toBeInTheDocument();
+        expect(screen.getByRole('menuitem', { name: '请先添加模型 API 密钥' })).toBeInTheDocument();
         expect(screen.queryByRole('menuitem', { name: /OpenAI/ })).not.toBeInTheDocument();
     });
 });

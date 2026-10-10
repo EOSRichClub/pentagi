@@ -11,6 +11,8 @@ import (
 
 type Querier interface {
 	AddFavoriteFlow(ctx context.Context, arg AddFavoriteFlowParams) (UserPreference, error)
+	CountUserModelServiceCredentials(ctx context.Context, arg CountUserModelServiceCredentialsParams) (int64, error)
+	CountUserModelServiceProviders(ctx context.Context, arg CountUserModelServiceProvidersParams) (int64, error)
 	CreateAPIToken(ctx context.Context, arg CreateAPITokenParams) (ApiToken, error)
 	CreateAgentLog(ctx context.Context, arg CreateAgentLogParams) (Agentlog, error)
 	CreateAssistant(ctx context.Context, arg CreateAssistantParams) (Assistant, error)
@@ -18,6 +20,8 @@ type Querier interface {
 	CreateContainer(ctx context.Context, arg CreateContainerParams) (Container, error)
 	CreateFlow(ctx context.Context, arg CreateFlowParams) (Flow, error)
 	CreateFlowTemplate(ctx context.Context, arg CreateFlowTemplateParams) (FlowTemplate, error)
+	CreateModelCredential(ctx context.Context, arg CreateModelCredentialParams) (ModelCredential, error)
+	CreateModelService(ctx context.Context, arg CreateModelServiceParams) (ModelService, error)
 	CreateMsgChain(ctx context.Context, arg CreateMsgChainParams) (Msgchain, error)
 	CreateMsgLog(ctx context.Context, arg CreateMsgLogParams) (Msglog, error)
 	CreateProvider(ctx context.Context, arg CreateProviderParams) (Provider, error)
@@ -55,6 +59,8 @@ type Querier interface {
 	DeleteUserAPITokenByTokenID(ctx context.Context, arg DeleteUserAPITokenByTokenIDParams) (ApiToken, error)
 	// Delete a knowledge document by UUID, only if it belongs to the given user.
 	DeleteUserKnowledgeDocument(ctx context.Context, arg DeleteUserKnowledgeDocumentParams) error
+	DeleteUserModelCredential(ctx context.Context, arg DeleteUserModelCredentialParams) (ModelCredential, error)
+	DeleteUserModelService(ctx context.Context, arg DeleteUserModelServiceParams) (ModelService, error)
 	DeleteUserPreferences(ctx context.Context, userID int64) error
 	DeleteUserPrompt(ctx context.Context, arg DeleteUserPromptParams) error
 	// deleted_at IS NULL is load-bearing, not just hygiene: without it a replayed
@@ -75,12 +81,14 @@ type Querier interface {
 	GetAllResourcesRecursive(ctx context.Context, arg GetAllResourcesRecursiveParams) ([]UserResource, error)
 	GetAllResourcesRoot(ctx context.Context) ([]UserResource, error)
 	GetAssistant(ctx context.Context, id int64) (Assistant, error)
+	GetAssistantFlowControlEnabled(ctx context.Context, id int64) (bool, error)
 	GetAssistantUseAgents(ctx context.Context, id int64) (bool, error)
 	// Get total count of assistants for a specific flow
 	GetAssistantsCountForFlow(ctx context.Context, flowID int64) (int64, error)
 	GetCallToolcall(ctx context.Context, callID string) (Toolcall, error)
 	GetContainerTermLogs(ctx context.Context, containerID int64) ([]Termlog, error)
 	GetContainers(ctx context.Context) ([]Container, error)
+	GetEnvironmentModelCredential(ctx context.Context, arg GetEnvironmentModelCredentialParams) (ModelCredential, error)
 	GetFlow(ctx context.Context, id int64) (Flow, error)
 	GetFlowAgentLog(ctx context.Context, arg GetFlowAgentLogParams) (Agentlog, error)
 	GetFlowAgentLogs(ctx context.Context, flowID int64) ([]Agentlog, error)
@@ -223,6 +231,11 @@ type Querier interface {
 	GetUserFlows(ctx context.Context, userID int64) ([]Flow, error)
 	// Fetch a single knowledge document by UUID, scoped to a specific user.
 	GetUserKnowledgeDocument(ctx context.Context, arg GetUserKnowledgeDocumentParams) (GetUserKnowledgeDocumentRow, error)
+	GetUserModelCredential(ctx context.Context, arg GetUserModelCredentialParams) (ModelCredential, error)
+	GetUserModelCredentials(ctx context.Context, userID int64) ([]GetUserModelCredentialsRow, error)
+	GetUserModelService(ctx context.Context, arg GetUserModelServiceParams) (ModelService, error)
+	GetUserModelServiceByType(ctx context.Context, arg GetUserModelServiceByTypeParams) (ModelService, error)
+	GetUserModelServices(ctx context.Context, userID int64) ([]ModelService, error)
 	GetUserPreferencesByUserID(ctx context.Context, userID int64) (UserPreference, error)
 	GetUserPrompt(ctx context.Context, arg GetUserPromptParams) (Prompt, error)
 	GetUserPromptByType(ctx context.Context, arg GetUserPromptByTypeParams) (Prompt, error)
@@ -253,6 +266,7 @@ type Querier interface {
 	ListFlowKnowledgeDocuments(ctx context.Context, flowID sql.NullString) ([]ListFlowKnowledgeDocumentsRow, error)
 	// List all non-memory knowledge documents owned by a specific user (user-scoped view).
 	ListUserKnowledgeDocuments(ctx context.Context, userID sql.NullString) ([]ListUserKnowledgeDocumentsRow, error)
+	ResolveUserModelCredential(ctx context.Context, arg ResolveUserModelCredentialParams) (ResolveUserModelCredentialRow, error)
 	// Vector similarity search over all knowledge documents (admin view, no user filter).
 	// Returns rows ordered by cosine similarity descending (highest score first).
 	// embedding    query vector as a PostgreSQL vector literal, e.g. '[0.1,0.2,...]'
@@ -269,6 +283,7 @@ type Querier interface {
 	SearchUserKnowledgeDocuments(ctx context.Context, arg SearchUserKnowledgeDocumentsParams) ([]SearchUserKnowledgeDocumentsRow, error)
 	UpdateAPIToken(ctx context.Context, arg UpdateAPITokenParams) (ApiToken, error)
 	UpdateAssistant(ctx context.Context, arg UpdateAssistantParams) (Assistant, error)
+	UpdateAssistantFlowControlEnabled(ctx context.Context, arg UpdateAssistantFlowControlEnabledParams) (Assistant, error)
 	UpdateAssistantLanguage(ctx context.Context, arg UpdateAssistantLanguageParams) (Assistant, error)
 	UpdateAssistantLog(ctx context.Context, arg UpdateAssistantLogParams) (Assistantlog, error)
 	UpdateAssistantLogContent(ctx context.Context, arg UpdateAssistantLogContentParams) (Assistantlog, error)
@@ -327,6 +342,8 @@ type Querier interface {
 	UpdateToolcallFinishedResult(ctx context.Context, arg UpdateToolcallFinishedResultParams) (Toolcall, error)
 	UpdateToolcallStatus(ctx context.Context, arg UpdateToolcallStatusParams) (Toolcall, error)
 	UpdateUserAPIToken(ctx context.Context, arg UpdateUserAPITokenParams) (ApiToken, error)
+	UpdateUserModelCredential(ctx context.Context, arg UpdateUserModelCredentialParams) (ModelCredential, error)
+	UpdateUserModelService(ctx context.Context, arg UpdateUserModelServiceParams) (ModelService, error)
 	UpdateUserName(ctx context.Context, arg UpdateUserNameParams) (User, error)
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) (User, error)
 	UpdateUserPasswordChangeRequired(ctx context.Context, arg UpdateUserPasswordChangeRequiredParams) (User, error)

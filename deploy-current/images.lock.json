@@ -12,25 +12,25 @@
       "localTag": "pentagi-local:2.1.0-cn-hotfix.8-assistant-model-switch-r1",
       "localImageId": "sha256:0a9a45b108925908ba0b043010b11dfb1cc17bae7e30adc34d6b4173665382fd",
       "registryTag": "ghcr.io/eosrichclub/pentagi:2.1.0-cn-hotfix.8-assistant-model-switch-r1",
-      "registryDigest": null
+      "registryDigest": "sha256:0a9a45b108925908ba0b043010b11dfb1cc17bae7e30adc34d6b4173665382fd"
     },
     {
       "role": "default-task-tools",
       "localTag": "pentagi-tools-unified:20261003.1",
       "localImageId": "sha256:261fa0385bd42b630b2ec66bfb27eea6069f2eda005ece7cf77f6e9291b8ef6e",
       "registryTag": "ghcr.io/eosrichclub/pentagi-tools-unified:20261003.1",
-      "registryDigest": null
+      "registryDigest": "sha256:261fa0385bd42b630b2ec66bfb27eea6069f2eda005ece7cf77f6e9291b8ef6e"
     },
     {
       "role": "existing-task-kali",
       "localTag": "pentagi-kali-safe:5.0.0-cn-hotfix.1",
       "localImageId": "sha256:938811f2c7b7ffe220c06d52e592402e1f5ce89731bed416ef5c8cbc881b26a1",
       "registryTag": "ghcr.io/eosrichclub/pentagi-kali-safe:5.0.0-cn-hotfix.1",
-      "registryDigest": null
+      "registryDigest": "sha256:938811f2c7b7ffe220c06d52e592402e1f5ce89731bed416ef5c8cbc881b26a1"
     }
   ],
   "notes": [
-    "registryDigest is filled only after a successful push and remote inspection",
+    "registryDigest values were verified from GHCR after successful pushes",
     "pull by digest during disaster recovery",
     "upstream runtime images remain governed by docker-compose.server.yml"
   ]
